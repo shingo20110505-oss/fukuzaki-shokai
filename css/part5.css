@@ -1,0 +1,165 @@
+@media(max-width:980px){
+  .sales-refined-head{grid-template-columns:1fr;gap:30px;align-items:start}
+  .sales-refined-intro{max-width:720px}
+  .sales-refined-grid{grid-template-columns:1fr}
+  .sales-refined-card,.sales-refined-card:first-child{min-height:220px;border-left:1px solid rgba(255,255,255,.18);border-right:1px solid rgba(255,255,255,.18);border-bottom:1px solid rgba(255,255,255,.18)}
+  .sales-refined-card:last-child{border-bottom:0}
+  .sales-refined-card h3{margin-top:28px}
+}
+@media(max-width:760px){
+  .sales-refined{padding:80px 0}
+  .sales-refined-head{padding-bottom:38px}
+  .sales-refined-head h2{font-size:clamp(38px,11vw,52px)}
+  .sales-refined-intro p{font-size:14px;line-height:1.9}
+  .sales-refined-card{min-height:230px;padding:30px 26px 28px}
+  .sales-refined-card h3{font-size:24px}
+  .sales-refined-card p{padding-right:42px;font-size:13px;line-height:1.8}
+  .sales-refined-arrow{right:22px;bottom:22px;width:38px;height:38px}
+}
+
+/* ===== 公式サイト：スマートフォンナビゲーション安定化 ===== */
+@media (max-width:1100px){
+  .site-header{
+    right:0;
+    width:auto;
+    z-index:1000;
+  }
+  .header-shell{
+    position:relative;
+    z-index:2;
+  }
+  .brand{
+    min-width:0;
+    max-width:calc(100% - 66px);
+  }
+  .brand-copy{
+    min-width:0;
+  }
+  .brand-copy strong,
+  .brand-copy small{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .header-actions{
+    flex:0 0 auto;
+    margin-left:auto;
+  }
+  .menu-button{
+    display:grid;
+    place-items:center;
+    flex:0 0 48px;
+    width:48px;
+    height:48px;
+    margin:0;
+    padding:0;
+    border:0;
+    border-radius:10px;
+    appearance:none;
+    -webkit-appearance:none;
+    touch-action:manipulation;
+  }
+  .menu-button>span:not(.sr-only){
+    left:11px;
+    width:26px;
+  }
+  .mobile-menu{
+    position:fixed;
+    z-index:999;
+    top:84px;
+    right:0;
+    bottom:0;
+    left:0;
+    height:calc(100dvh - 84px);
+    min-height:0;
+    padding:28px max(var(--pad),env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(var(--pad),env(safe-area-inset-left));
+    overflow-x:hidden;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+    background:#0c1117;
+    color:#fff;
+  }
+  .mobile-menu[hidden]{
+    display:none!important;
+  }
+  .mobile-menu nav,
+  .mobile-menu ul{
+    width:100%;
+  }
+  .mobile-menu a{
+    width:100%;
+  }
+  body.menu-open{
+    overflow:hidden;
+    overscroll-behavior:none;
+  }
+}
+
+@media (max-width:760px){
+  .site-header,
+  .site-header.is-scrolled{
+    background:rgba(12,17,23,.98);
+    color:#fff;
+    border-color:rgba(255,255,255,.12);
+    box-shadow:0 8px 24px rgba(0,0,0,.16);
+    -webkit-backdrop-filter:blur(14px);
+    backdrop-filter:blur(14px);
+  }
+  .header-shell{
+    height:70px;
+    width:calc(100% - 24px);
+    padding-left:env(safe-area-inset-left);
+    padding-right:env(safe-area-inset-right);
+    gap:10px;
+  }
+  .header-phone{
+    display:none!important;
+  }
+  .brand{
+    gap:10px;
+    max-width:calc(100% - 58px);
+  }
+  .brand-mark{
+    flex:0 0 34px;
+  }
+  .brand-copy strong{
+    font-size:15px;
+    letter-spacing:.06em;
+  }
+  .brand-copy small{
+    margin-top:5px;
+    font-size:7px;
+    letter-spacing:.17em;
+  }
+  .mobile-menu{
+    top:70px;
+    height:calc(100dvh - 70px);
+    padding-top:22px;
+  }
+  .mobile-menu a{
+    min-height:52px;
+    align-items:center;
+    padding:12px 2px;
+    font-size:16px;
+  }
+  .mobile-call{
+    margin-top:22px!important;
+    padding:18px 20px!important;
+  }
+}
+
+@media (max-width:360px){
+  .brand-copy small{
+    display:none;
+  }
+  .brand-copy strong{
+    font-size:14px;
+  }
+}
+
+@media (min-width:1101px){
+  .mobile-menu{
+    display:none!important;
+  }
+}
