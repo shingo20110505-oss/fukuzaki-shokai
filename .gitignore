@@ -1,0 +1,22 @@
+# Server-specific / secrets
+.user.ini
+.env
+.env.*
+wp-config.php
+
+# WordPress runtime (this repository is for the static site)
+wp-admin/
+wp-includes/
+wp-content/uploads/
+wp-content/cache/
+
+# Backups and local files
+*.zip
+*.tar
+*.tar.gz
+*.sql
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
