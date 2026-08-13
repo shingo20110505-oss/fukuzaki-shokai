@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://ayuto.xsrv.jp/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/sales.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/repair.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/models.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/works.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/company.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/faq.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/contact.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/privacy.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+</urlset>
