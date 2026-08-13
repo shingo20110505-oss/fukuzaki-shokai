@@ -1,5 +1,17 @@
 SetEnvIf Request_URI ".*" Ngx_Cache_NoCacheMode=off
 SetEnvIf Request_URI ".*" Ngx_Cache_AllCacheMode
-RewriteEngine on
+
+DirectoryIndex index.html
+RewriteEngine On
 RewriteCond %{HTTPS} !on
-RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+# Preserve WordPress-style clean URLs after static migration.
+RewriteRule ^sales/?$ sales.html [L]
+RewriteRule ^repair/?$ repair.html [L]
+RewriteRule ^models/?$ models.html [L]
+RewriteRule ^works/?$ works.html [L]
+RewriteRule ^company/?$ company.html [L]
+RewriteRule ^faq/?$ faq.html [L]
+RewriteRule ^contact/?$ contact.html [L]
+RewriteRule ^privacy/?$ privacy.html [L]
