@@ -24,7 +24,7 @@ jobs:
           test -n "$FTP_USERNAME" || (echo "FTP_USERNAME is missing" && exit 1)
           test -n "$FTP_PASSWORD" || (echo "FTP_PASSWORD is missing" && exit 1)
 
-      - name: Upload static site to restricted FTP root
+      - name: Upload static site into git-test directory
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
@@ -46,6 +46,15 @@ jobs:
           ftp.connect(server, 21)
           ftp.login(username, password)
           ftp.prot_p()
+
+          # Safety: always deploy one level below the FTP login root.
+          # On this XServer account the login root is public_html, so this
+          # guarantees the site lands in public_html/git-test/.
+          try:
+              ftp.cwd('git-test')
+          except ftplib.error_perm:
+              ftp.mkd('git-test')
+              ftp.cwd('git-test')
 
           def ensure_dir(name):
               try:
@@ -69,7 +78,7 @@ jobs:
 
           try:
               upload_dir(Path('.'))
-              print('Deployment completed successfully.')
+              print('Deployment to git-test completed successfully.')
           finally:
               try:
                   ftp.quit()
