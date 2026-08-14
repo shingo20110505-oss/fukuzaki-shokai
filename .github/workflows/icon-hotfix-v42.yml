@@ -2,6 +2,11 @@ name: Fix v4.2 icon colors on XServer
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/icon-hotfix-v42.yml'
 
 permissions:
   contents: read
@@ -32,21 +37,23 @@ jobs:
           SCP_CMD="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
           REMOTE="ayuto@sv16618.xserver.jp"
           ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
-          # Build a cache-busting v4.2 SVG brand icon using the intended palette.
+
           cat > /tmp/fukuzaki-brand-v42.svg <<'SVG'
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="フクザキ商会">
-            <defs>
-              <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#001b3e"/><stop offset="1" stop-color="#041939"/></linearGradient>
-            </defs>
-            <rect x="7" y="7" width="166" height="166" rx="24" fill="url(#bg)" stroke="#ffffff" stroke-width="1.2"/>
-            <path d="M29 119 C48 117 58 100 71 82 C82 67 84 54 71 45 C85 48 97 55 99 67 C101 78 94 88 85 97 C73 109 65 123 77 133 C88 142 105 137 114 127 C123 117 125 103 117 94 C110 86 99 83 90 83 C104 77 121 78 134 88 C149 100 151 121 139 136 C126 152 102 157 83 149 C68 143 58 131 59 118 C50 126 40 132 29 132 Z" fill="#ffffff"/>
-            <path d="M107 47 C112 39 124 41 126 49 C128 41 140 39 145 47 C150 56 140 65 126 75 C112 65 102 56 107 47 Z" fill="#e98399" transform="scale(.55) translate(103 35)"/>
+          <svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+          <defs>
+           <radialGradient id="bg" cx="50%" cy="42%" r="75%"><stop offset="0" stop-color="#06254f"/><stop offset=".62" stop-color="#001b3e"/><stop offset="1" stop-color="#041939"/></radialGradient>
+           <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f4f7fb"/><stop offset=".5" stop-color="#91a1b6"/><stop offset="1" stop-color="#f4f7fb"/></linearGradient>
+          </defs>
+          <rect width="180" height="180" rx="25" fill="url(#bg)"/>
+          <rect x="6.5" y="6.5" width="167" height="167" rx="22" fill="none" stroke="url(#edge)" stroke-width="1.15" opacity=".9"/>
+          <path d="M 71 39 L 77 44 L 78 44 L 83 49 L 83 50 L 86 53 L 88 57 L 88 61 L 84 65 L 81 66 L 74 73 L 73 75 L 73 78 L 72 79 L 72 84 L 73 85 L 73 87 L 76 91 L 76 92 L 80 96 L 80 98 L 76 101 L 73 102 L 71 104 L 68 105 L 66 107 L 63 108 L 55 114 L 47 118 L 45 120 L 35 125 L 33 125 L 32 126 L 30 126 L 28 127 L 30 129 L 34 131 L 41 131 L 43 130 L 71 106 L 72 106 L 79 100 L 81 99 L 83 99 L 84 101 L 91 108 L 91 109 L 94 113 L 96 122 L 95 123 L 95 125 L 93 129 L 89 133 L 85 135 L 82 135 L 81 136 L 77 136 L 76 135 L 73 135 L 72 134 L 70 134 L 64 131 L 58 126 L 60 128 L 60 129 L 69 138 L 75 141 L 77 141 L 78 142 L 82 142 L 83 143 L 87 143 L 88 142 L 92 142 L 93 141 L 95 141 L 99 139 L 104 134 L 106 130 L 106 127 L 107 126 L 107 119 L 106 118 L 106 115 L 105 114 L 105 112 L 103 108 L 101 106 L 101 105 L 91 95 L 97 92 L 102 92 L 103 91 L 109 91 L 110 92 L 114 92 L 115 93 L 117 93 L 123 96 L 132 105 L 132 106 L 134 108 L 134 110 L 136 114 L 136 126 L 135 127 L 135 129 L 133 133 L 131 135 L 131 136 L 126 141 L 123 142 L 123 143 L 124 142 L 127 142 L 128 141 L 130 141 L 136 138 L 138 136 L 139 136 L 144 130 L 146 126 L 146 123 L 147 122 L 147 116 L 146 115 L 146 112 L 145 111 L 145 109 L 144 107 L 141 104 L 141 103 L 133 96 L 127 93 L 122 92 L 121 91 L 117 91 L 116 90 L 104 90 L 103 91 L 98 91 L 97 92 L 94 92 L 90 94 L 81 85 L 81 84 L 78 80 L 78 78 L 77 76 L 78 75 L 78 73 L 79 71 L 84 66 L 86 65 L 91 65 L 95 67 L 99 67 L 100 65 L 100 61 L 99 60 L 99 58 L 97 56 L 95 52 L 88 46 L 78 41 L 76 41 L 75 40 L 72 40 Z" fill="#fff" fill-rule="evenodd"/>
+          <path d="M 112 44 L 110 46 L 109 48 L 109 50 L 111 54 L 117 60 L 118 60 L 124 54 L 126 48 L 123 44 L 121 44 L 118 47 L 117 47 L 114 44 Z" fill="#e98399" fill-rule="evenodd"/>
           </svg>
           SVG
 
           connected=0
           for i in 1 2 3 4 5; do
-            if $SSH_CMD "$REMOTE" "test -d '$ROOT'"; then connected=1; break; fi
+            if $SSH_CMD "$REMOTE" "test -d '$ROOT' && test -d '$ROOT/git-test'"; then connected=1; break; fi
             sleep 8
           done
           test "$connected" -eq 1
@@ -55,6 +62,7 @@ jobs:
           $SCP_CMD /tmp/fukuzaki-brand-v42.svg "$REMOTE:$ROOT/images/brand-icon-v42.svg"
           $SCP_CMD /tmp/fukuzaki-brand-v42.svg "$REMOTE:$ROOT/git-test/images/brand-icon-v42.svg"
 
-          $SSH_CMD "$REMOTE" "for d in '$ROOT' '$ROOT/git-test'; do for f in \"\$d\"/*.html; do [ -f \"\$f\" ] || continue; sed -i -E 's#images/apple-touch-icon\.png([?][^\"]*)?#images/brand-icon-v42.svg?v=42#g' \"\$f\"; done; done"
+          # Header/footer logo: use the corrected v4.2 brand icon.
+          $SSH_CMD "$REMOTE" "for d in '$ROOT' '$ROOT/git-test'; do for f in \"\$d\"/*.html; do [ -f \"\$f\" ] || continue; sed -i 's#src=\"images/apple-touch-icon.png\"#src=\"images/brand-icon-v42.svg?v=43\"#g' \"\$f\"; sed -i 's#rel=\"icon\" href=\"images/apple-touch-icon.png\"#rel=\"icon\" href=\"images/brand-icon-v42.svg?v=43\" type=\"image/svg+xml\"#g' \"\$f\"; done; done"
 
-          $SSH_CMD "$REMOTE" "grep -q 'brand-icon-v42.svg?v=42' '$ROOT/index.html' && grep -q 'brand-icon-v42.svg?v=42' '$ROOT/git-test/index.html' && test -s '$ROOT/images/brand-icon-v42.svg' && test -s '$ROOT/git-test/images/brand-icon-v42.svg' && echo 'v4.2 icon hotfix verified'"
+          $SSH_CMD "$REMOTE" "grep -q 'src=\"images/brand-icon-v42.svg?v=43\"' '$ROOT/index.html' && grep -q 'src=\"images/brand-icon-v42.svg?v=43\"' '$ROOT/git-test/index.html' && test -s '$ROOT/images/brand-icon-v42.svg' && test -s '$ROOT/git-test/images/brand-icon-v42.svg' && echo 'v4.2 icon hotfix verified'"
