@@ -1,0 +1,66 @@
+name: Diagnose public unified v4.2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diagnose-public-v42.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every public URL with status
+        run: |
+          set -u
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          failed=0
+          for path in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html style.css js/main.js robots.txt sitemap.xml images/favicon.svg images/ogp.png; do
+            code=$(curl -sSL --retry 2 --retry-delay 1 -o /tmp/item -w '%{http_code}' "$BASE/$path?verify=$NONCE")
+            size=$(wc -c < /tmp/item | tr -d ' ')
+            echo "$code  $size bytes  /$path"
+            case "$path" in
+              index.html|sales.html|repair.html|models.html|works.html|company.html|faq.html|contact.html|privacy.html|404.html|style.css|js/main.js|robots.txt|sitemap.xml)
+                test "$code" = '200' || failed=1
+                ;;
+              images/*)
+                test "$code" = '200' || echo "OPTIONAL-ASSET-MISSING: /$path"
+                ;;
+            esac
+          done
+          exit "$failed"
+
+      - name: Check unified content markers
+        run: |
+          set -eu
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for page in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
+            curl -fsSL "$BASE/$page?verify=$NONCE" -o "/tmp/$page"
+            grep -Fq 'style.css?v=20260814d' "/tmp/$page"
+            grep -Fq 'js/main.js?v=20260814d' "/tmp/$page"
+            ! grep -Fq 'css/style.css' "/tmp/$page"
+          done
+          grep -Fq '0x60049ac8c2ae130f:0xc41e3638eb14fef0' /tmp/company.html
+          curl -fsSL "$BASE/style.css?verify=$NONCE" -o /tmp/style.css
+          curl -fsSL "$BASE/js/main.js?verify=$NONCE" -o /tmp/main.js
+          grep -Fq 'v4.2 unified mobile navigation final fix' /tmp/style.css
+          grep -Fq '[data-menu-button]' /tmp/main.js
+          echo 'CORE PUBLIC v4.2 CONTENT VERIFIED'
+
+      - name: Check clean URL compatibility
+        run: |
+          set -eu
+          BASE='https://ayuto.xsrv.jp'
+          for clean in sales repair models works company faq contact privacy; do
+            code=$(curl -sS -o /tmp/clean -w '%{http_code}' "$BASE/$clean")
+            echo "$code /$clean"
+            test "$code" = '200'
+          done
+          echo 'CLEAN URL COMPATIBILITY VERIFIED'
