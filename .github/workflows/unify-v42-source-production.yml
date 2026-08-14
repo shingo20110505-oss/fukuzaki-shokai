@@ -1,0 +1,242 @@
+name: Unify verified v4.2 source and production
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/unify-v42-source-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unify-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild verified v4.2 static package
+        run: |
+          set -eu
+          cp js/main.js /tmp/main-js-current.js
+          cat deploy/v42chunks/part-* > /tmp/v42-site.tar.gz
+          echo "df8d06a2ac9128e7ee221383a945598aa431475a44e5a99a50ddb16a9449534d  /tmp/v42-site.tar.gz" | sha256sum -c -
+          rm -rf /tmp/v42-source
+          mkdir -p /tmp/v42-source
+          tar -xzf /tmp/v42-site.tar.gz -C /tmp/v42-source
+          test -f /tmp/v42-source/index.html
+          test -f /tmp/v42-source/style.css
+          test -f /tmp/v42-source/js/main.js
+          grep -Fq '愛知・三重・岐阜全域' /tmp/v42-source/index.html
+          echo 'Verified v4.2 package rebuilt'
+
+      - name: Merge approved fixes into v4.2 source
+        run: |
+          set -eu
+          cp /tmp/main-js-current.js /tmp/v42-source/js/main.js
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('/tmp/v42-source')
+          version = '20260814d'
+          place = 'https://www.google.com/maps/place/%E3%83%95%E3%82%AF%E3%82%B6%E3%82%AD%E5%95%86%E4%BC%9A/@34.9073026,136.9883357,45m/data=!3m1!1e3!4m6!3m5!1s0x60049ac8c2ae130f:0xc41e3638eb14fef0!8m2!3d34.9072603!4d136.9884351!16s%2Fg%2F1tf3nv_5?entry=ttu&g_ep=EgoyMDI2MDgxMS4wIKXMDSoASAFQAw%3D%3D'
+
+          for page in root.glob('*.html'):
+              text = page.read_text(encoding='utf-8')
+              text = re.sub(r'href="(?:css/)?style\.css(?:\?v=[^"]+)?"', f'href="style.css?v={version}"', text)
+              text = re.sub(r'\n?<link rel="stylesheet" href="mobile-nav-v42\.css(?:\?v=[^"]+)?">', '', text)
+              text = re.sub(r'src="js/main\.js(?:\?v=[^"]+)?"(?: defer)?></script>', f'src="js/main.js?v={version}" defer></script>', text)
+              if page.name == 'company.html':
+                  text = re.sub(r'https://www\.google\.com/maps/(?:search/\?api=1[^\"]*|place/[^\"]*)', place, text)
+              page.write_text(text, encoding='utf-8')
+
+          css = (root / 'style.css').read_text(encoding='utf-8')
+          marker = '/* v4.2 unified mobile navigation final fix */'
+          if marker not in css:
+              css += '''\n\n/* v4.2 unified mobile navigation final fix */\n@media (max-width:1100px){\n  .site-header,\n  .site-header.is-scrolled{\n    -webkit-backdrop-filter:none!important;\n    backdrop-filter:none!important;\n  }\n  .site-header{z-index:1000!important;}\n  .header-shell{position:relative;z-index:2;}\n  .mobile-menu{\n    position:fixed!important;\n    right:0!important;\n    bottom:0!important;\n    left:0!important;\n    z-index:999!important;\n    min-height:0!important;\n    overflow-x:hidden!important;\n    overflow-y:auto!important;\n    overscroll-behavior:contain;\n    -webkit-overflow-scrolling:touch;\n    background:#0c1117;\n    color:#fff;\n  }\n  .mobile-menu[hidden]{display:none!important;}\n  body.menu-open{overflow:hidden;overscroll-behavior:none;}\n}\n@media (max-width:760px){\n  .mobile-menu{top:70px!important;height:calc(100dvh - 70px)!important;}\n}\n@media (min-width:761px) and (max-width:1100px){\n  .mobile-menu{top:84px!important;height:calc(100dvh - 84px)!important;}\n}\n@media (min-width:1101px){.mobile-menu{display:none!important;}}\n'''
+          (root / 'style.css').write_text(css, encoding='utf-8')
+
+          htaccess = '''SetEnvIf Request_URI ".*" Ngx_Cache_NoCacheMode=off\nSetEnvIf Request_URI ".*" Ngx_Cache_AllCacheMode\n\nDirectoryIndex index.html\nOptions -MultiViews\nRewriteEngine On\nRewriteCond %{HTTPS} !on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]\n\nErrorDocument 404 /404.html\n\n# Preserve former clean URLs while serving static pages.\nRewriteRule ^sales/?$ sales.html [L]\nRewriteRule ^repair/?$ repair.html [L]\nRewriteRule ^models/?$ models.html [L]\nRewriteRule ^works/?$ works.html [L]\nRewriteRule ^company/?$ company.html [L]\nRewriteRule ^faq/?$ faq.html [L]\nRewriteRule ^contact/?$ contact.html [L]\nRewriteRule ^privacy/?$ privacy.html [L]\nRewriteRule ^404/?$ 404.html [L]\n'''
+          (root / '.htaccess').write_text(htaccess, encoding='utf-8')
+          PY
+
+      - name: Validate unified source before commit
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+          from html.parser import HTMLParser
+          from urllib.parse import urlsplit
+
+          root = Path('/tmp/v42-source')
+          pages = ['index.html','sales.html','repair.html','models.html','works.html','company.html','faq.html','contact.html','privacy.html','404.html']
+          version = '20260814d'
+
+          class Parser(HTMLParser):
+              def __init__(self):
+                  super().__init__(); self.refs=[]
+              def handle_starttag(self, tag, attrs):
+                  d=dict(attrs)
+                  for key in ('href','src'):
+                      if key in d: self.refs.append(d[key])
+
+          for name in pages:
+              p=root/name
+              assert p.is_file(), name
+              text=p.read_text(encoding='utf-8')
+              assert f'style.css?v={version}' in text, (name,'style')
+              assert f'js/main.js?v={version}' in text, (name,'js')
+              assert 'css/style.css' not in text, (name,'old-css')
+              assert 'mobile-nav-v42.css' not in text, (name,'sidecar-css')
+              parser=Parser(); parser.feed(text)
+              for ref in parser.refs:
+                  if not ref or ref.startswith(('http://','https://','tel:','mailto:','#','data:','javascript:')):
+                      continue
+                  path=urlsplit(ref).path
+                  if path.startswith('images/'):
+                      continue
+                  assert (root/path).exists(), (name,ref)
+
+          company=(root/'company.html').read_text(encoding='utf-8')
+          assert '/maps/place/%E3%83%95%E3%82%AF%E3%82%B6%E3%82%AD%E5%95%86%E4%BC%9A/' in company
+          assert '0x60049ac8c2ae130f:0xc41e3638eb14fef0' in company
+          css=(root/'style.css').read_text(encoding='utf-8')
+          assert 'v4.2 unified mobile navigation final fix' in css
+          assert 'backdrop-filter:none!important' in css
+          js=(root/'js/main.js').read_text(encoding='utf-8')
+          assert '[data-menu-button]' in js
+          assert 'body.style.position' in js
+          print('UNIFIED SOURCE VALIDATED')
+          PY
+
+      - name: Replace repository root with canonical v4.2 source
+        run: |
+          set -eu
+          files='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html robots.txt sitemap.xml google5bafaf3d1a3bdc85.html style.css .htaccess'
+          for f in $files; do
+            cp "/tmp/v42-source/$f" "$f"
+          done
+          mkdir -p js
+          cp /tmp/v42-source/js/main.js js/main.js
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $files js/main.js
+          if git diff --cached --quiet; then
+            echo 'Repository source already unified'
+          else
+            git commit -m 'Normalize repository to verified v4.2 source'
+            git push origin HEAD:main
+          fi
+
+      - name: Configure SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Backup and deploy unified v4.2 to production and git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          RSYNC_SSH="$SSH"
+          REMOTE='ayuto@sv16618.xserver.jp'
+          ROOT='/home/ayuto/ayuto.xsrv.jp/public_html'
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/unified-v42-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            echo "SSH attempt $i"
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$TEST' && mkdir -p /home/ayuto/deploy-backups"; then
+              connected=1; break
+            fi
+            sleep 10
+          done
+          test "$connected" -eq 1
+
+          echo 'Creating rollback backup of files that will be replaced...'
+          $SSH "$REMOTE" "cd '$ROOT' && tar -czf '$BACKUP' --ignore-failed-read index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html robots.txt sitemap.xml google5bafaf3d1a3bdc85.html style.css .htaccess js/main.js && test -s '$BACKUP'"
+
+          deploy_one() {
+            target="$1"
+            ok=0
+            for i in 1 2 3; do
+              if rsync -az -e "$RSYNC_SSH" \
+                /tmp/v42-source/index.html \
+                /tmp/v42-source/sales.html \
+                /tmp/v42-source/repair.html \
+                /tmp/v42-source/models.html \
+                /tmp/v42-source/works.html \
+                /tmp/v42-source/company.html \
+                /tmp/v42-source/faq.html \
+                /tmp/v42-source/contact.html \
+                /tmp/v42-source/privacy.html \
+                /tmp/v42-source/404.html \
+                /tmp/v42-source/robots.txt \
+                /tmp/v42-source/sitemap.xml \
+                /tmp/v42-source/google5bafaf3d1a3bdc85.html \
+                /tmp/v42-source/style.css \
+                /tmp/v42-source/.htaccess \
+                "$REMOTE:$target/" && \
+                rsync -az -e "$RSYNC_SSH" /tmp/v42-source/js/main.js "$REMOTE:$target/js/main.js"; then
+                ok=1; break
+              fi
+              sleep 10
+            done
+            test "$ok" -eq 1
+          }
+
+          deploy_one "$ROOT"
+          deploy_one "$TEST"
+
+          $SSH "$REMOTE" "test -s '$ROOT/style.css' && test -s '$ROOT/js/main.js' && grep -Fq '20260814d' '$ROOT/index.html' && grep -Fq '20260814d' '$ROOT/sales.html' && grep -Fq '20260814d' '$ROOT/repair.html' && grep -Fq '20260814d' '$ROOT/models.html' && grep -Fq '20260814d' '$ROOT/works.html' && grep -Fq '20260814d' '$ROOT/company.html' && grep -Fq '20260814d' '$ROOT/faq.html' && grep -Fq '20260814d' '$ROOT/contact.html' && grep -Fq '20260814d' '$ROOT/privacy.html' && grep -Fq '0x60049ac8c2ae130f:0xc41e3638eb14fef0' '$ROOT/company.html' && grep -Fq 'v4.2 unified mobile navigation final fix' '$ROOT/style.css' && echo 'SERVER UNIFIED v4.2 VERIFIED'"
+
+      - name: Verify every public page and asset over HTTPS
+        run: |
+          set -eu
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          pages='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html'
+
+          for page in $pages; do
+            url="$BASE/$page?verify=$NONCE"
+            curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$url" -o "/tmp/$page"
+            grep -Fq 'style.css?v=20260814d' "/tmp/$page"
+            grep -Fq 'js/main.js?v=20260814d' "/tmp/$page"
+            if grep -Fq 'css/style.css' "/tmp/$page"; then
+              echo "Old CSS reference remains in $page"; exit 1
+            fi
+          done
+
+          grep -Fq '0x60049ac8c2ae130f:0xc41e3638eb14fef0' /tmp/company.html
+          curl -fsSL --retry 3 "$BASE/style.css?v=20260814d&verify=$NONCE" -o /tmp/public-style.css
+          curl -fsSL --retry 3 "$BASE/js/main.js?v=20260814d&verify=$NONCE" -o /tmp/public-main.js
+          curl -fsSL --retry 3 "$BASE/robots.txt?verify=$NONCE" -o /tmp/robots.txt
+          curl -fsSL --retry 3 "$BASE/sitemap.xml?verify=$NONCE" -o /tmp/sitemap.xml
+          curl -fsSL --retry 3 "$BASE/images/favicon.svg?verify=$NONCE" -o /tmp/favicon.svg
+          curl -fsSL --retry 3 "$BASE/images/ogp.png?verify=$NONCE" -o /tmp/ogp.png
+          grep -Fq 'v4.2 unified mobile navigation final fix' /tmp/public-style.css
+          grep -Fq '[data-menu-button]' /tmp/public-main.js
+          grep -Fq 'https://ayuto.xsrv.jp/sitemap.xml' /tmp/robots.txt
+          grep -Fq 'https://ayuto.xsrv.jp/' /tmp/sitemap.xml
+          test -s /tmp/favicon.svg
+          test -s /tmp/ogp.png
+
+          for clean in sales repair models works company faq contact privacy; do
+            code=$(curl -sS -o /tmp/clean.html -w '%{http_code}' --retry 2 "$BASE/$clean?verify=$NONCE")
+            test "$code" = '200'
+          done
+          echo 'PUBLIC ALL-PAGE v4.2 VERIFICATION PASSED'
