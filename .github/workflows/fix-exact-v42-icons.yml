@@ -59,7 +59,7 @@ jobs:
           echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/apple-touch-icon.png' | sha256sum -c -
           echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/favicon.png' | sha256sum -c -
 
-      - name: Separate icon references on every page
+      - name: Separate icon references on site pages
         run: |
           set -eu
           python3 - <<'PY'
@@ -67,7 +67,9 @@ jobs:
           import re
 
           version = '20260814f'
-          for p in Path('.').glob('*.html'):
+          pages = ['index.html','sales.html','repair.html','models.html','works.html','company.html','faq.html','contact.html','privacy.html','404.html']
+          for name in pages:
+              p = Path(name)
               s = p.read_text(encoding='utf-8')
               s = re.sub(
                   r'<link rel="icon" href="images/(?:apple-touch-icon\.png|favicon\.svg|favicon\.png|brand-icon\.png)(?:\?v=[^"]+)?"(?: type="[^"]+")?>',
@@ -87,7 +89,8 @@ jobs:
               p.write_text(s, encoding='utf-8')
           PY
 
-          for f in *.html; do
+          pages='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html'
+          for f in $pages; do
             grep -Fq 'images/favicon.png?v=20260814f' "$f"
             grep -Fq 'images/apple-touch-icon.png?v=20260814f' "$f"
             if grep -Fq 'class="brand-mark' "$f"; then
@@ -105,7 +108,7 @@ jobs:
           set -eu
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A *.html images
+          git add index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html images
           if ! git diff --cached --quiet; then
             git commit -m 'Use exact approved v4.2 icon PNG everywhere'
             git push origin HEAD:main
@@ -144,8 +147,9 @@ jobs:
 
           $SSH "$REMOTE" "cd '$ROOT' && tar -czf '$BACKUP' --ignore-failed-read *.html images/apple-touch-icon.png images/favicon.png images/favicon.svg images/brand-icon.png"
 
+          pages='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html'
           for target in "$ROOT" "$TEST"; do
-            rsync -az -e "$SSH" *.html "$REMOTE:$target/"
+            rsync -az -e "$SSH" $pages "$REMOTE:$target/"
             rsync -az -e "$SSH" images/brand-icon.png images/apple-touch-icon.png images/favicon.png "$REMOTE:$target/images/"
             $SSH "$REMOTE" "rm -f '$target/images/favicon.svg'"
           done
