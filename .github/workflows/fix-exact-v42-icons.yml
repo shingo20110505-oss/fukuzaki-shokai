@@ -24,7 +24,14 @@ jobs:
           set -eu
           mkdir -p images
           cat \
-            deploy/icon-source/brand-part-00 \
+            deploy/icon-source/brand-part-00x-00 \
+            deploy/icon-source/brand-part-00x-01 \
+            deploy/icon-source/brand-part-00x-02 \
+            deploy/icon-source/brand-part-00x-03 \
+            deploy/icon-source/brand-part-00x-04 \
+            deploy/icon-source/brand-part-00x-05 \
+            deploy/icon-source/brand-part-00x-06 \
+            deploy/icon-source/brand-part-00x-07 \
             deploy/icon-source/brand-part-01 \
             deploy/icon-source/brand-part-02x-00 \
             deploy/icon-source/brand-part-02x-01 \
