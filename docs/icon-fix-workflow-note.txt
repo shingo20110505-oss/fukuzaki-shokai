@@ -1,0 +1,1 @@
+The v4.2 icon hotfix deploys the corrected brand icon to both git-test and production and adds a cache-busting query string to HTML icon references.
