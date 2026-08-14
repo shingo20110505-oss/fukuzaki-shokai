@@ -1,0 +1,27 @@
+name: Verify public company Google Maps link
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/verify-public-company-link.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-public:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch public company page and verify exact Google place link
+        run: |
+          set -eu
+          URL="https://ayuto.xsrv.jp/company.html?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl -fsSL --retry 3 --retry-delay 3 -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$URL" -o /tmp/company.html
+          grep -Fq 'Googleマップで確認' /tmp/company.html
+          grep -Fq '/maps/place/%E3%83%95%E3%82%AF%E3%82%B6%E3%82%AD%E5%95%86%E4%BC%9A/' /tmp/company.html
+          grep -Fq '0x60049ac8c2ae130f:0xc41e3638eb14fef0' /tmp/company.html
+          echo 'PUBLIC COMPANY PAGE VERIFIED'
+          echo 'Google Maps link points to the exact フクザキ商会 place page.'
