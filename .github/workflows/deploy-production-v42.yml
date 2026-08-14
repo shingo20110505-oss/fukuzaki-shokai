@@ -55,6 +55,7 @@ jobs:
           REMOTE="ayuto@sv16618.xserver.jp"
           DOMAIN_HOME="/home/ayuto/ayuto.xsrv.jp"
           TARGET="$DOMAIN_HOME/public_html/"
+          TESTROOT="${TARGET}git-test/"
           BACKUP_DIR="/home/ayuto/deploy-backups"
           BACKUP="$BACKUP_DIR/pre-static-v42-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
           STAGE="/home/ayuto/deploy-staging/v42-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
@@ -70,8 +71,8 @@ jobs:
           done
           test "$connected" -eq 1 || (echo "SSH login failed after retries" && exit 1)
 
-          echo "Checking production images that were already verified in git-test..."
-          $SSH_CMD "$REMOTE" "test -f '${TARGET}images/apple-touch-icon.png' && test -f '${TARGET}images/ogp.png' && printf 'Existing production images OK\n'"
+          echo "Checking images from the user-verified git-test site..."
+          $SSH_CMD "$REMOTE" "test -f '${TESTROOT}images/apple-touch-icon.png' && test -f '${TESTROOT}images/ogp.png' && printf 'git-test images OK\n'"
 
           echo "Creating production backup before cutover..."
           $SSH_CMD "$REMOTE" "rm -f '$BACKUP' && tar -czf '$BACKUP' -C '$DOMAIN_HOME' public_html && test -s '$BACKUP' && printf 'Production backup OK: $BACKUP\n'"
@@ -88,10 +89,13 @@ jobs:
           done
           test "$staged" -eq 1 || (echo "Staging upload failed" && exit 1)
 
-          $SSH_CMD "$REMOTE" "test -f '${STAGE}index.html' && test -f '${STAGE}style.css' && test -f '${STAGE}js/main.js' && grep -q '愛知・三重・岐阜全域' '${STAGE}index.html' && printf 'Staging verification OK\n'"
+          echo "Copying verified git-test images into production staging..."
+          $SSH_CMD "$REMOTE" "mkdir -p '${STAGE}images' && cp '${TESTROOT}images/apple-touch-icon.png' '${STAGE}images/apple-touch-icon.png' && cp '${TESTROOT}images/ogp.png' '${STAGE}images/ogp.png'"
+
+          $SSH_CMD "$REMOTE" "test -f '${STAGE}index.html' && test -f '${STAGE}style.css' && test -f '${STAGE}js/main.js' && test -f '${STAGE}images/apple-touch-icon.png' && test -f '${STAGE}images/ogp.png' && grep -q '愛知・三重・岐阜全域' '${STAGE}index.html' && printf 'Staging verification OK\n'"
 
           echo "Cutting over production..."
-          $SSH_CMD "$REMOTE" "rsync -a --delete --exclude 'git-test/' --exclude '.well-known/' --exclude '.user.ini' --exclude 'images/' '$STAGE' '$TARGET'"
+          $SSH_CMD "$REMOTE" "rsync -a --delete --exclude 'git-test/' --exclude '.well-known/' --exclude '.user.ini' '$STAGE' '$TARGET'"
 
           $SSH_CMD "$REMOTE" "test -f '${TARGET}index.html' && test -f '${TARGET}style.css' && test -f '${TARGET}js/main.js' && test -f '${TARGET}images/apple-touch-icon.png' && test -f '${TARGET}images/ogp.png' && test -f '${TARGET}sitemap.xml' && test -f '${TARGET}robots.txt' && grep -q '愛知・三重・岐阜全域' '${TARGET}index.html' && grep -q '^ErrorDocument 404 /404.html$' '${TARGET}.htaccess' && test ! -d '${TARGET}wp-admin' && test -d '${TARGET}git-test' && printf 'PRODUCTION v4.2 VERIFIED\nBackup: $BACKUP\n'"
 
