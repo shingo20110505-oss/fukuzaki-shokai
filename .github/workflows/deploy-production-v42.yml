@@ -29,8 +29,6 @@ jobs:
           test -f _deploy_v42/index.html
           test -f _deploy_v42/style.css
           test -f _deploy_v42/js/main.js
-          test -f _deploy_v42/images/apple-touch-icon.png
-          test -f _deploy_v42/images/ogp.png
           grep -q '愛知・三重・岐阜全域' _deploy_v42/index.html
           grep -q 'href="style.css"' _deploy_v42/index.html
           if ! grep -q '^ErrorDocument 404 /404.html$' _deploy_v42/.htaccess; then
@@ -72,6 +70,9 @@ jobs:
           done
           test "$connected" -eq 1 || (echo "SSH login failed after retries" && exit 1)
 
+          echo "Checking production images that were already verified in git-test..."
+          $SSH_CMD "$REMOTE" "test -f '${TARGET}images/apple-touch-icon.png' && test -f '${TARGET}images/ogp.png' && printf 'Existing production images OK\n'"
+
           echo "Creating production backup before cutover..."
           $SSH_CMD "$REMOTE" "rm -f '$BACKUP' && tar -czf '$BACKUP' -C '$DOMAIN_HOME' public_html && test -s '$BACKUP' && printf 'Production backup OK: $BACKUP\n'"
 
@@ -79,7 +80,7 @@ jobs:
           $SSH_CMD "$REMOTE" "rm -rf '$STAGE' && mkdir -p '$STAGE'"
           staged=0
           for i in 1 2 3; do
-            if rsync -az --delete -e "$SSH_CMD" _deploy_v42/ "$REMOTE:$STAGE"; then
+            if rsync -az --delete --exclude 'images/' -e "$SSH_CMD" _deploy_v42/ "$REMOTE:$STAGE"; then
               staged=1
               break
             fi
@@ -87,10 +88,10 @@ jobs:
           done
           test "$staged" -eq 1 || (echo "Staging upload failed" && exit 1)
 
-          $SSH_CMD "$REMOTE" "test -f '${STAGE}index.html' && test -f '${STAGE}style.css' && test -f '${STAGE}js/main.js' && test -f '${STAGE}images/apple-touch-icon.png' && test -f '${STAGE}images/ogp.png' && grep -q '愛知・三重・岐阜全域' '${STAGE}index.html' && printf 'Staging verification OK\n'"
+          $SSH_CMD "$REMOTE" "test -f '${STAGE}index.html' && test -f '${STAGE}style.css' && test -f '${STAGE}js/main.js' && grep -q '愛知・三重・岐阜全域' '${STAGE}index.html' && printf 'Staging verification OK\n'"
 
           echo "Cutting over production..."
-          $SSH_CMD "$REMOTE" "rsync -a --delete --exclude 'git-test/' --exclude '.well-known/' --exclude '.user.ini' '$STAGE' '$TARGET'"
+          $SSH_CMD "$REMOTE" "rsync -a --delete --exclude 'git-test/' --exclude '.well-known/' --exclude '.user.ini' --exclude 'images/' '$STAGE' '$TARGET'"
 
           $SSH_CMD "$REMOTE" "test -f '${TARGET}index.html' && test -f '${TARGET}style.css' && test -f '${TARGET}js/main.js' && test -f '${TARGET}images/apple-touch-icon.png' && test -f '${TARGET}images/ogp.png' && test -f '${TARGET}sitemap.xml' && test -f '${TARGET}robots.txt' && grep -q '愛知・三重・岐阜全域' '${TARGET}index.html' && grep -q '^ErrorDocument 404 /404.html$' '${TARGET}.htaccess' && test ! -d '${TARGET}wp-admin' && test -d '${TARGET}git-test' && printf 'PRODUCTION v4.2 VERIFIED\nBackup: $BACKUP\n'"
 
