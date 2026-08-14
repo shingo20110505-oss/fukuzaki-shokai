@@ -1,0 +1,72 @@
+name: Deploy missing favicon
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy-missing-favicon.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  favicon:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate favicon source
+        run: |
+          set -eu
+          test -s images/favicon.svg
+          grep -Fq '<svg' images/favicon.svg
+
+      - name: Configure SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Deploy favicon to production and git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE='ayuto@sv16618.xserver.jp'
+          ROOT='/home/ayuto/ayuto.xsrv.jp/public_html'
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            if $SSH "$REMOTE" "mkdir -p '$ROOT/images' '$ROOT/git-test/images'"; then connected=1; break; fi
+            sleep 8
+          done
+          test "$connected" -eq 1
+
+          $SCP images/favicon.svg "$REMOTE:$ROOT/images/favicon.svg"
+          $SCP images/favicon.svg "$REMOTE:$ROOT/git-test/images/favicon.svg"
+          $SSH "$REMOTE" "test -s '$ROOT/images/favicon.svg' && test -s '$ROOT/git-test/images/favicon.svg' && echo 'FAVICON SERVER VERIFIED'"
+
+      - name: Verify public favicon and all core pages
+        run: |
+          set -eu
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          code=$(curl -sSL --retry 3 --retry-delay 2 -o /tmp/favicon.svg -w '%{http_code}' "$BASE/images/favicon.svg?verify=$NONCE")
+          test "$code" = '200'
+          grep -Fq '<svg' /tmp/favicon.svg
+          for page in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
+            code=$(curl -sSL --retry 2 -o /tmp/page -w '%{http_code}' "$BASE/$page?verify=$NONCE")
+            test "$code" = '200'
+            grep -Fq 'style.css?v=20260814d' /tmp/page
+            grep -Fq 'js/main.js?v=20260814d' /tmp/page
+          done
+          echo 'PUBLIC UNIFIED v4.2 + FAVICON VERIFIED'
