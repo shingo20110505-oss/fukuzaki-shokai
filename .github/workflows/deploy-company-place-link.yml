@@ -1,10 +1,11 @@
-name: Deploy exact Google Maps place link
+name: Deploy v4.2 company page
 
 on:
   push:
     branches:
       - main
     paths:
+      - 'company.html'
       - '.github/workflows/deploy-company-place-link.yml'
   workflow_dispatch:
 
@@ -17,6 +18,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate v4.2 company page locally
+        run: |
+          set -eu
+          grep -Fq 'style.css?v=20260814b' company.html
+          grep -Fq 'mobile-nav-v42.css?v=20260814a' company.html
+          grep -Fq 'js/main.js?v=20260814b' company.html
+          grep -Fq '0x60049ac8c2ae130f:0xc41e3638eb14fef0' company.html
+          grep -Fq '全自動麻雀卓の販売・修理' company.html
 
       - name: Configure SSH private key
         env:
@@ -37,12 +47,13 @@ jobs:
           SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
           REMOTE="ayuto@sv16618.xserver.jp"
           ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
-          BACKUP="/home/ayuto/deploy-backups/company-place-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BACKUP="/home/ayuto/deploy-backups/company-v42-assets-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           PLACE_ID='0x60049ac8c2ae130f:0xc41e3638eb14fef0'
 
           connected=0
           for i in 1 2 3 4 5; do
-            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$ROOT/git-test' && mkdir -p '$BACKUP'"; then
+            echo "SSH attempt $i"
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$ROOT/git-test' && test -s '$ROOT/style.css' && test -s '$ROOT/js/main.js' && test -s '$ROOT/mobile-nav-v42.css' && mkdir -p '$BACKUP'"; then
               connected=1
               break
             fi
@@ -52,7 +63,34 @@ jobs:
 
           $SSH "$REMOTE" "cp '$ROOT/company.html' '$BACKUP/company-production.html' && cp '$ROOT/git-test/company.html' '$BACKUP/company-git-test.html'"
 
-          $SCP company.html "$REMOTE:$ROOT/company.html"
-          $SCP company.html "$REMOTE:$ROOT/git-test/company.html"
+          uploaded=0
+          for i in 1 2 3; do
+            if $SCP company.html "$REMOTE:$ROOT/company.html" && $SCP company.html "$REMOTE:$ROOT/git-test/company.html"; then
+              uploaded=1
+              break
+            fi
+            sleep 8
+          done
+          test "$uploaded" -eq 1
 
-          $SSH "$REMOTE" "grep -Fq '$PLACE_ID' '$ROOT/company.html' && grep -Fq '$PLACE_ID' '$ROOT/git-test/company.html' && echo 'EXACT GOOGLE PLACE LINK VERIFIED'"
+          $SSH "$REMOTE" "grep -Fq '$PLACE_ID' '$ROOT/company.html' && grep -Fq 'style.css?v=20260814b' '$ROOT/company.html' && grep -Fq 'mobile-nav-v42.css?v=20260814a' '$ROOT/company.html' && grep -Fq 'js/main.js?v=20260814b' '$ROOT/company.html' && grep -Fq '$PLACE_ID' '$ROOT/git-test/company.html' && echo 'SERVER COMPANY v4.2 ASSETS VERIFIED'"
+
+      - name: Verify public company page CSS and JS
+        run: |
+          set -eu
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl -fsSL --retry 3 --retry-delay 3 -H 'Cache-Control: no-cache' "$BASE/company.html?verify=$NONCE" -o /tmp/company.html
+          grep -Fq 'style.css?v=20260814b' /tmp/company.html
+          grep -Fq 'mobile-nav-v42.css?v=20260814a' /tmp/company.html
+          grep -Fq 'js/main.js?v=20260814b' /tmp/company.html
+          grep -Fq '0x60049ac8c2ae130f:0xc41e3638eb14fef0' /tmp/company.html
+
+          curl -fsSL --retry 3 "$BASE/style.css?v=20260814b&verify=$NONCE" -o /tmp/style.css
+          curl -fsSL --retry 3 "$BASE/mobile-nav-v42.css?v=20260814a&verify=$NONCE" -o /tmp/mobile-nav.css
+          curl -fsSL --retry 3 "$BASE/js/main.js?v=20260814b&verify=$NONCE" -o /tmp/main.js
+
+          grep -Fq '.site-header' /tmp/style.css
+          grep -Fq '.mobile-menu' /tmp/mobile-nav.css
+          grep -Fq '[data-menu-button]' /tmp/main.js
+          echo 'PUBLIC COMPANY CSS JS VERIFIED'
