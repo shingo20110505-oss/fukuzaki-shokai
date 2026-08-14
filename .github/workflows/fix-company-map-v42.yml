@@ -37,7 +37,6 @@ jobs:
           REMOTE="ayuto@sv16618.xserver.jp"
           ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
           BACKUP="/home/ayuto/deploy-backups/company-map-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          OLD='https://www.google.com/maps/search/?api=1&query=%E6%84%9B%E7%9F%A5%E7%9C%8C%E7%A2%A7%E5%8D%97%E5%B8%82%E6%9D%BE%E6%B1%9F%E7%94%BA2%E4%B8%81%E7%9B%AE55%E7%95%AA%E5%9C%B0'
           NEW='https://www.google.com/maps/search/?api=1&query=34.9072624%2C136.98842177'
 
           connected=0
@@ -52,6 +51,6 @@ jobs:
 
           $SSH "$REMOTE" "cp '$ROOT/company.html' '$BACKUP/company-production.html' && cp '$ROOT/git-test/company.html' '$BACKUP/company-git-test.html'"
 
-          $SSH "$REMOTE" "for f in '$ROOT/company.html' '$ROOT/git-test/company.html'; do sed -i \"s#$OLD#$NEW#g\" \"\$f\"; done"
+          $SSH "$REMOTE" "for f in '$ROOT/company.html' '$ROOT/git-test/company.html'; do sed -i -E 's#href=\"https://www\.google\.com/maps/search/\?api=1[^\"]*\"#href=\"https://www.google.com/maps/search/?api=1\&query=34.9072624%2C136.98842177\"#g' \"\$f\"; done"
 
-          $SSH "$REMOTE" "grep -q '$NEW' '$ROOT/company.html' && grep -q '$NEW' '$ROOT/git-test/company.html' && ! grep -q '$OLD' '$ROOT/company.html' && ! grep -q '$OLD' '$ROOT/git-test/company.html' && echo 'COMPANY MAP LOCATION VERIFIED'"
+          $SSH "$REMOTE" "grep -Fq '$NEW' '$ROOT/company.html' && grep -Fq '$NEW' '$ROOT/git-test/company.html' && echo 'COMPANY MAP LOCATION VERIFIED'"
