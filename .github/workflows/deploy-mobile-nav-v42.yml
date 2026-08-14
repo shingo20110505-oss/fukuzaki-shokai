@@ -1,0 +1,67 @@
+name: Deploy v4.2 mobile navigation fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'patches/mobile-nav-v42.css'
+      - '.github/workflows/deploy-mobile-nav-v42.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-mobile-nav-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Deploy navigation CSS to production and git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          CSS="patches/mobile-nav-v42.css"
+          VERSION="20260814a"
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            echo "SSH attempt $i"
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$ROOT/git-test'"; then
+              connected=1
+              break
+            fi
+            sleep 8
+          done
+          test "$connected" -eq 1 || (echo "SSH connection failed" && exit 1)
+
+          uploaded=0
+          for i in 1 2 3; do
+            if $SCP "$CSS" "$REMOTE:$ROOT/mobile-nav-v42.css" && $SCP "$CSS" "$REMOTE:$ROOT/git-test/mobile-nav-v42.css"; then
+              uploaded=1
+              break
+            fi
+            sleep 8
+          done
+          test "$uploaded" -eq 1 || (echo "CSS upload failed" && exit 1)
+
+          $SSH "$REMOTE" "for d in '$ROOT' '$ROOT/git-test'; do for f in \"\$d\"/*.html; do [ -f \"\$f\" ] || continue; if ! grep -q 'mobile-nav-v42.css' \"\$f\"; then sed -i 's#</head>#<link rel=\"stylesheet\" href=\"mobile-nav-v42.css?v=$VERSION\">\\n</head>#' \"\$f\"; fi; done; done"
+
+          $SSH "$REMOTE" "test -s '$ROOT/mobile-nav-v42.css' && test -s '$ROOT/git-test/mobile-nav-v42.css' && grep -q 'mobile-nav-v42.css?v=$VERSION' '$ROOT/index.html' && grep -q 'mobile-nav-v42.css?v=$VERSION' '$ROOT/git-test/index.html' && echo 'MOBILE NAV FIX VERIFIED'"
