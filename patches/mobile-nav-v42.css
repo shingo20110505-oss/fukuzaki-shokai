@@ -1,0 +1,43 @@
+/* v4.2 mobile navigation fix - 2026-08-14
+   The sticky header uses backdrop-filter. A fixed descendant can then be
+   positioned relative to that ancestor instead of the viewport in mobile browsers.
+   Disable the filter while the responsive menu is in use and explicitly pin
+   the drawer to the viewport. */
+
+@media (max-width: 1320px) {
+  .site-header {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .mobile-menu {
+    position: fixed;
+    z-index: 1100;
+    top: 88px;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    background: #fff;
+  }
+
+  .mobile-menu[hidden] {
+    display: none !important;
+  }
+
+  body.menu-open {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .mobile-menu {
+    top: 74px;
+  }
+}
