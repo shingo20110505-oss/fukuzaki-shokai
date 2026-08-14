@@ -1,0 +1,1 @@
+v4.2 icon color hotfix marker. The production and git-test icon assets are updated by the icon hotfix workflow.
