@@ -1,0 +1,58 @@
+name: Deploy exact Google Maps place link
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy-company-place-link.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-company:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Deploy company page to production and git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          BACKUP="/home/ayuto/deploy-backups/company-place-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PLACE_ID='0x60049ac8c2ae130f:0xc41e3638eb14fef0'
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$ROOT/git-test' && mkdir -p '$BACKUP'"; then
+              connected=1
+              break
+            fi
+            sleep 8
+          done
+          test "$connected" -eq 1
+
+          $SSH "$REMOTE" "cp '$ROOT/company.html' '$BACKUP/company-production.html' && cp '$ROOT/git-test/company.html' '$BACKUP/company-git-test.html'"
+
+          $SCP company.html "$REMOTE:$ROOT/company.html"
+          $SCP company.html "$REMOTE:$ROOT/git-test/company.html"
+
+          $SSH "$REMOTE" "grep -Fq '$PLACE_ID' '$ROOT/company.html' && grep -Fq '$PLACE_ID' '$ROOT/git-test/company.html' && echo 'EXACT GOOGLE PLACE LINK VERIFIED'"
