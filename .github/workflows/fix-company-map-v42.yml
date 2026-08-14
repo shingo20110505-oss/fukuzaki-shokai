@@ -1,0 +1,57 @@
+name: Fix company Google Maps location
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/fix-company-map-v42.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map-hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Fix Google Maps link in production and git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          BACKUP="/home/ayuto/deploy-backups/company-map-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          OLD='https://www.google.com/maps/search/?api=1&query=%E6%84%9B%E7%9F%A5%E7%9C%8C%E7%A2%A7%E5%8D%97%E5%B8%82%E6%9D%BE%E6%B1%9F%E7%94%BA2%E4%B8%81%E7%9B%AE55%E7%95%AA%E5%9C%B0'
+          NEW='https://www.google.com/maps/search/?api=1&query=34.9072624%2C136.98842177'
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            if $SSH "$REMOTE" "test -f '$ROOT/company.html' && test -f '$ROOT/git-test/company.html' && mkdir -p '$BACKUP'"; then
+              connected=1
+              break
+            fi
+            sleep 8
+          done
+          test "$connected" -eq 1
+
+          $SSH "$REMOTE" "cp '$ROOT/company.html' '$BACKUP/company-production.html' && cp '$ROOT/git-test/company.html' '$BACKUP/company-git-test.html'"
+
+          $SSH "$REMOTE" "for f in '$ROOT/company.html' '$ROOT/git-test/company.html'; do sed -i \"s#$OLD#$NEW#g\" \"\$f\"; done"
+
+          $SSH "$REMOTE" "grep -q '$NEW' '$ROOT/company.html' && grep -q '$NEW' '$ROOT/git-test/company.html' && ! grep -q '$OLD' '$ROOT/company.html' && ! grep -q '$OLD' '$ROOT/git-test/company.html' && echo 'COMPANY MAP LOCATION VERIFIED'"
