@@ -23,7 +23,28 @@ jobs:
         run: |
           set -eu
           mkdir -p images
-          cat deploy/icon-source/brand-part-* > /tmp/brand-icon.b64
+          cat \
+            deploy/icon-source/brand-part-00 \
+            deploy/icon-source/brand-part-01 \
+            deploy/icon-source/brand-part-02x-00 \
+            deploy/icon-source/brand-part-02x-01 \
+            deploy/icon-source/brand-part-02x-02 \
+            deploy/icon-source/brand-part-02x-03a \
+            deploy/icon-source/brand-part-02x-03b \
+            deploy/icon-source/brand-part-02x-03c0 \
+            deploy/icon-source/brand-part-02x-03c1 \
+            deploy/icon-source/brand-part-02x-03c2 \
+            deploy/icon-source/brand-part-02x-03c3 \
+            deploy/icon-source/brand-part-02x-03c4 \
+            deploy/icon-source/brand-part-02x-03d \
+            deploy/icon-source/brand-part-02x-04 \
+            deploy/icon-source/brand-part-02x-05 \
+            deploy/icon-source/brand-part-02x-06 \
+            deploy/icon-source/brand-part-02x-07 \
+            deploy/icon-source/brand-part-03 \
+            deploy/icon-source/brand-part-04 \
+            deploy/icon-source/brand-part-05 \
+            | tr -d '\r\n\t ' > /tmp/brand-icon.b64
           base64 -d /tmp/brand-icon.b64 > images/brand-icon.png
           cp images/brand-icon.png images/apple-touch-icon.png
           cp images/brand-icon.png images/favicon.png
