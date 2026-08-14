@@ -1,0 +1,60 @@
+name: Fix v4.2 icon colors on XServer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  icon-hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Replace old icon with corrected v4.2 brand asset
+        run: |
+          set -eu
+          SSH_CMD="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP_CMD="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          # Build a cache-busting v4.2 SVG brand icon using the intended palette.
+          cat > /tmp/fukuzaki-brand-v42.svg <<'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="フクザキ商会">
+            <defs>
+              <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#001b3e"/><stop offset="1" stop-color="#041939"/></linearGradient>
+            </defs>
+            <rect x="7" y="7" width="166" height="166" rx="24" fill="url(#bg)" stroke="#ffffff" stroke-width="1.2"/>
+            <path d="M29 119 C48 117 58 100 71 82 C82 67 84 54 71 45 C85 48 97 55 99 67 C101 78 94 88 85 97 C73 109 65 123 77 133 C88 142 105 137 114 127 C123 117 125 103 117 94 C110 86 99 83 90 83 C104 77 121 78 134 88 C149 100 151 121 139 136 C126 152 102 157 83 149 C68 143 58 131 59 118 C50 126 40 132 29 132 Z" fill="#ffffff"/>
+            <path d="M107 47 C112 39 124 41 126 49 C128 41 140 39 145 47 C150 56 140 65 126 75 C112 65 102 56 107 47 Z" fill="#e98399" transform="scale(.55) translate(103 35)"/>
+          </svg>
+          SVG
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            if $SSH_CMD "$REMOTE" "test -d '$ROOT'"; then connected=1; break; fi
+            sleep 8
+          done
+          test "$connected" -eq 1
+
+          $SSH_CMD "$REMOTE" "mkdir -p '$ROOT/images' '$ROOT/git-test/images'"
+          $SCP_CMD /tmp/fukuzaki-brand-v42.svg "$REMOTE:$ROOT/images/brand-icon-v42.svg"
+          $SCP_CMD /tmp/fukuzaki-brand-v42.svg "$REMOTE:$ROOT/git-test/images/brand-icon-v42.svg"
+
+          $SSH_CMD "$REMOTE" "for d in '$ROOT' '$ROOT/git-test'; do for f in \"\$d\"/*.html; do [ -f \"\$f\" ] || continue; sed -i -E 's#images/apple-touch-icon\.png([?][^\"]*)?#images/brand-icon-v42.svg?v=42#g' \"\$f\"; done; done"
+
+          $SSH_CMD "$REMOTE" "grep -q 'brand-icon-v42.svg?v=42' '$ROOT/index.html' && grep -q 'brand-icon-v42.svg?v=42' '$ROOT/git-test/index.html' && test -s '$ROOT/images/brand-icon-v42.svg' && test -s '$ROOT/git-test/images/brand-icon-v42.svg' && echo 'v4.2 icon hotfix verified'"
