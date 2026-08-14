@@ -1,0 +1,150 @@
+name: Fix exact v4.2 brand icons permanently
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-exact-v42-icons.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-icons:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore exact approved icon PNG
+        run: |
+          set -eu
+          mkdir -p images
+          cat deploy/icon-source/brand-part-* > /tmp/brand-icon.b64
+          base64 -d /tmp/brand-icon.b64 > images/brand-icon.png
+          cp images/brand-icon.png images/apple-touch-icon.png
+          cp images/brand-icon.png images/favicon.png
+          echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/brand-icon.png' | sha256sum -c -
+          echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/apple-touch-icon.png' | sha256sum -c -
+          echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/favicon.png' | sha256sum -c -
+
+      - name: Separate icon references on every page
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          version = '20260814f'
+          for p in Path('.').glob('*.html'):
+              s = p.read_text(encoding='utf-8')
+              s = re.sub(
+                  r'<link rel="icon" href="images/(?:apple-touch-icon\.png|favicon\.svg|favicon\.png|brand-icon\.png)(?:\?v=[^"]+)?"(?: type="[^"]+")?>',
+                  f'<link rel="icon" href="images/favicon.png?v={version}" type="image/png">',
+                  s,
+              )
+              s = re.sub(
+                  r'<link rel="apple-touch-icon" href="images/(?:apple-touch-icon\.png|brand-icon\.png)(?:\?v=[^"]+)?">',
+                  f'<link rel="apple-touch-icon" href="images/apple-touch-icon.png?v={version}">',
+                  s,
+              )
+              s = re.sub(
+                  r'(class="brand-mark(?: [^"]*)?"\s+src=")images/(?:apple-touch-icon\.png|favicon\.svg|favicon\.png|brand-icon-v42\.svg|brand-icon\.png)(?:\?v=[^"]+)?("[^>]*>)',
+                  rf'\1images/brand-icon.png?v={version}\2',
+                  s,
+              )
+              p.write_text(s, encoding='utf-8')
+          PY
+
+          for f in *.html; do
+            grep -Fq 'images/favicon.png?v=20260814f' "$f"
+            grep -Fq 'images/apple-touch-icon.png?v=20260814f' "$f"
+            if grep -Fq 'class="brand-mark' "$f"; then
+              grep -Fq 'images/brand-icon.png?v=20260814f' "$f"
+            fi
+            if grep -Fq 'images/favicon.svg' "$f"; then
+              echo "Old favicon SVG reference remains in $f"
+              exit 1
+            fi
+          done
+          rm -f images/favicon.svg
+
+      - name: Commit permanent source fix
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A *.html images
+          if ! git diff --cached --quiet; then
+            git commit -m 'Use exact approved v4.2 icon PNG everywhere'
+            git push origin HEAD:main
+          fi
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Deploy exact icons to production and git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE='ayuto@sv16618.xserver.jp'
+          ROOT='/home/ayuto/ayuto.xsrv.jp/public_html'
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/exact-v42-icons-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$TEST' && mkdir -p /home/ayuto/deploy-backups"; then
+              connected=1
+              break
+            fi
+            sleep 8
+          done
+          test "$connected" -eq 1
+
+          $SSH "$REMOTE" "cd '$ROOT' && tar -czf '$BACKUP' --ignore-failed-read *.html images/apple-touch-icon.png images/favicon.png images/favicon.svg images/brand-icon.png"
+
+          for target in "$ROOT" "$TEST"; do
+            rsync -az -e "$SSH" *.html "$REMOTE:$target/"
+            rsync -az -e "$SSH" images/brand-icon.png images/apple-touch-icon.png images/favicon.png "$REMOTE:$target/images/"
+            $SSH "$REMOTE" "rm -f '$target/images/favicon.svg'"
+          done
+
+          $SSH "$REMOTE" "sha256sum '$ROOT/images/brand-icon.png' '$ROOT/images/apple-touch-icon.png' '$ROOT/images/favicon.png'"
+
+      - name: Verify exact icons publicly
+        run: |
+          set -eu
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          for page in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
+            curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$BASE/$page?verify=$NONCE" -o "/tmp/$page"
+            grep -Fq 'images/favicon.png?v=20260814f' "/tmp/$page"
+            grep -Fq 'images/apple-touch-icon.png?v=20260814f' "/tmp/$page"
+            if grep -Fq 'class="brand-mark' "/tmp/$page"; then
+              grep -Fq 'images/brand-icon.png?v=20260814f' "/tmp/$page"
+            fi
+            if grep -Fq 'images/favicon.svg' "/tmp/$page"; then exit 1; fi
+          done
+
+          for name in brand-icon.png apple-touch-icon.png favicon.png; do
+            curl -fsSL "$BASE/images/$name?verify=$NONCE" -o "/tmp/$name"
+            echo "cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  /tmp/$name" | sha256sum -c -
+          done
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/images/favicon.svg?verify=$NONCE")
+          test "$code" = '404'
+          echo 'PUBLIC EXACT APPROVED v4.2 ICON VERIFIED'
