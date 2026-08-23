@@ -196,7 +196,7 @@ jobs:
             done
           done < "$BACKUP/files.txt"
           test -s "$BACKUP/production-existing.txt"
-          test -s "$BACKUP/git-test-existing.txt"
+          test -s "$BACKUP/files.txt"
           echo "BACKUP READY: $BACKUP"
           REMOTE_SCRIPT
 
@@ -256,10 +256,14 @@ jobs:
             test "$code" = 200 || { echo "git-test route failed: $route ($code)"; exit 1; }
           done
 
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/repair/?verify=$NONCE" | grep -Fq '料金が変わる主な要素'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/contact/?verify=$NONCE" | grep -Fq 'https://line.me/R/ti/p/@761qehyo'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/works/?verify=$NONCE" | grep -Fq '/works/anjo-repair/'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/js/main.js?verify=$NONCE" | grep -Fq 'LINEで相談'
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/repair/?verify=$NONCE" -o /tmp/check-test-repair
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/contact/?verify=$NONCE" -o /tmp/check-test-contact
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/works/?verify=$NONCE" -o /tmp/check-test-works
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/js/main.js?verify=$NONCE" -o /tmp/check-test-js
+          grep -Fq '料金が変わる主な要素' /tmp/check-test-repair
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/check-test-contact
+          grep -Fq '/works/anjo-repair/' /tmp/check-test-works
+          grep -Fq 'LINEで相談' /tmp/check-test-js
           echo 'GIT-TEST PUBLIC AND SHA VERIFICATION OK'
           trap - ERR
 
@@ -320,17 +324,28 @@ jobs:
             test "$code" = 200 || { echo "Production route failed: $label ($code)"; exit 1; }
           done
 
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/repair/?verify=$NONCE" | grep -Fq '料金が変わる主な要素'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/repair/?verify=$NONCE" | grep -Fq 'https://line.me/R/ti/p/@761qehyo'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/contact/?verify=$NONCE" | grep -Fq 'LINE公式アカウント'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/faq/?verify=$NONCE" | grep -Fq 'LINEで修理や購入の相談はできますか'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/privacy/?verify=$NONCE" | grep -Fq 'LINEでのお問い合わせ'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/?verify=$NONCE" | grep -Fq '/works/yokkaichi-repair/'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/handa-amos-rexx/?verify=$NONCE" | grep -Fq '愛知県半田市・販売／納品'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/anjo-repair/?verify=$NONCE" | grep -Fq '全自動麻雀卓4卓'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/yokkaichi-repair/?verify=$NONCE" | grep -Fq '三重県四日市市・修理'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sitemap.xml?verify=$NONCE" | grep -Fq 'https://ayuto.xsrv.jp/works/anjo-repair/'
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" | grep -Fq 'https://line.me/R/ti/p/@761qehyo'
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/repair/?verify=$NONCE" -o /tmp/check-prod-repair
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/contact/?verify=$NONCE" -o /tmp/check-prod-contact
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/faq/?verify=$NONCE" -o /tmp/check-prod-faq
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/privacy/?verify=$NONCE" -o /tmp/check-prod-privacy
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/?verify=$NONCE" -o /tmp/check-prod-works
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/handa-amos-rexx/?verify=$NONCE" -o /tmp/check-prod-handa
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/anjo-repair/?verify=$NONCE" -o /tmp/check-prod-anjo
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/yokkaichi-repair/?verify=$NONCE" -o /tmp/check-prod-yokkaichi
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sitemap.xml?verify=$NONCE" -o /tmp/check-prod-sitemap
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" -o /tmp/check-prod-js
+
+          grep -Fq '料金が変わる主な要素' /tmp/check-prod-repair
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/check-prod-repair
+          grep -Fq 'LINE公式アカウント' /tmp/check-prod-contact
+          grep -Fq 'LINEで修理や購入の相談はできますか' /tmp/check-prod-faq
+          grep -Fq 'LINEでのお問い合わせ' /tmp/check-prod-privacy
+          grep -Fq '/works/yokkaichi-repair/' /tmp/check-prod-works
+          grep -Fq '愛知県半田市・販売／納品' /tmp/check-prod-handa
+          grep -Fq '全自動麻雀卓4卓' /tmp/check-prod-anjo
+          grep -Fq '三重県四日市市・修理' /tmp/check-prod-yokkaichi
+          grep -Fq 'https://ayuto.xsrv.jp/works/anjo-repair/' /tmp/check-prod-sitemap
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/check-prod-js
           curl -fsSI --retry 3 "$BASE/style.css?verify=$NONCE" >/dev/null
 
           not_found="$BASE/after-check-not-found-${GITHUB_RUN_ID}/"
