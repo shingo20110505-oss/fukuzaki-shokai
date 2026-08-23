@@ -10,6 +10,18 @@
   const menuLabel = menuButton?.querySelector('.sr-only');
   let lockedScrollY = 0;
 
+  let floatingLine = document.querySelector('.floating-line');
+  if (!floatingLine && floatingCall) {
+    floatingLine = document.createElement('a');
+    floatingLine.className = 'floating-line';
+    floatingLine.href = 'https://line.me/R/ti/p/@761qehyo';
+    floatingLine.target = '_blank';
+    floatingLine.rel = 'noopener';
+    floatingLine.setAttribute('aria-label', 'フクザキ商会のLINE公式アカウントで相談する');
+    floatingLine.innerHTML = '<span>LINEで相談</span>';
+    floatingCall.insertAdjacentElement('afterend', floatingLine);
+  }
+
   const setLoaded = () => root.classList.add('is-loaded');
   window.addEventListener('load', () => window.setTimeout(setLoaded, 420), { once: true });
   window.addEventListener('pageshow', (event) => {
@@ -18,8 +30,10 @@
   window.setTimeout(setLoaded, 1600);
 
   const updateHeader = () => {
+    const showQuickActions = window.scrollY > 520;
     header?.classList.toggle('is-scrolled', window.scrollY > 24);
-    floatingCall?.classList.toggle('is-active', window.scrollY > 520);
+    floatingCall?.classList.toggle('is-active', showQuickActions);
+    floatingLine?.classList.toggle('is-active', showQuickActions);
   };
   updateHeader();
   window.addEventListener('scroll', updateHeader, { passive: true });
