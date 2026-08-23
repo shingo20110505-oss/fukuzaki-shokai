@@ -5,6 +5,9 @@
   <url><loc>https://ayuto.xsrv.jp/repair/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://ayuto.xsrv.jp/models/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://ayuto.xsrv.jp/works/</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/works/handa-amos-rexx/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/works/anjo-repair/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://ayuto.xsrv.jp/works/yokkaichi-repair/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
   <url><loc>https://ayuto.xsrv.jp/company/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://ayuto.xsrv.jp/faq/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://ayuto.xsrv.jp/contact/</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
