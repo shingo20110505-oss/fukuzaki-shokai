@@ -214,22 +214,24 @@ jobs:
           BASE="https://ayuto.xsrv.jp"
           NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-test"
 
+          cat > /tmp/rollback-git-test.sh <<'ROLLBACK_TEST'
+          set -eu
+          while IFS= read -r f; do
+            if grep -Fxq "$f" "$BACKUP/git-test-existing.txt"; then
+              mkdir -p "$TEST/$(dirname "$f")"
+              cp -p "$BACKUP/git-test/$f" "$TEST/$f"
+            else
+              rm -f "$TEST/$f"
+            fi
+          done < "$BACKUP/files.txt"
+          echo 'GIT-TEST ROLLBACK COMPLETE'
+          ROLLBACK_TEST
+
           rollback_test() {
             trap - ERR
             set +e
             echo 'git-test verification failed; restoring previous files'
-            $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP_DIR' bash -s" <<'ROLLBACK'
-            set -eu
-            while IFS= read -r f; do
-              if grep -Fxq "$f" "$BACKUP/git-test-existing.txt"; then
-                mkdir -p "$TEST/$(dirname "$f")"
-                cp -p "$BACKUP/git-test/$f" "$TEST/$f"
-              else
-                rm -f "$TEST/$f"
-              fi
-            done < "$BACKUP/files.txt"
-            echo 'GIT-TEST ROLLBACK COMPLETE'
-            ROLLBACK
+            $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP_DIR' bash -s" < /tmp/rollback-git-test.sh
             exit 1
           }
           trap rollback_test ERR
@@ -276,22 +278,24 @@ jobs:
           BASE="https://ayuto.xsrv.jp"
           NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-prod"
 
+          cat > /tmp/rollback-production.sh <<'ROLLBACK_PROD'
+          set -eu
+          while IFS= read -r f; do
+            if grep -Fxq "$f" "$BACKUP/production-existing.txt"; then
+              mkdir -p "$ROOT/$(dirname "$f")"
+              cp -p "$BACKUP/production/$f" "$ROOT/$f"
+            else
+              rm -f "$ROOT/$f"
+            fi
+          done < "$BACKUP/files.txt"
+          echo 'PRODUCTION ROLLBACK COMPLETE'
+          ROLLBACK_PROD
+
           rollback_production() {
             trap - ERR
             set +e
             echo 'PRODUCTION verification failed; restoring pre-deploy files'
-            $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" <<'ROLLBACK'
-            set -eu
-            while IFS= read -r f; do
-              if grep -Fxq "$f" "$BACKUP/production-existing.txt"; then
-                mkdir -p "$ROOT/$(dirname "$f")"
-                cp -p "$BACKUP/production/$f" "$ROOT/$f"
-              else
-                rm -f "$ROOT/$f"
-              fi
-            done < "$BACKUP/files.txt"
-            echo 'PRODUCTION ROLLBACK COMPLETE'
-            ROLLBACK
+            $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" < /tmp/rollback-production.sh
             echo 'Rollback attempted; workflow will fail for review.'
             exit 1
           }
