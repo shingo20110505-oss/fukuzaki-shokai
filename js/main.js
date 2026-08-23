@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  // LINE quick-action release marker: 2026-08-24
 
   const root = document.documentElement;
   const body = document.body;
