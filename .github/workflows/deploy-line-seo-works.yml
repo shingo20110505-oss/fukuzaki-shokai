@@ -24,7 +24,7 @@ permissions:
 
 concurrency:
   group: fukuzaki-production-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -34,7 +34,7 @@ jobs:
       - name: Checkout exact source
         uses: actions/checkout@v4
 
-      - name: Validate source before any server change
+      - name: Validate source and build immutable deploy archive
         run: |
           set -euo pipefail
 
@@ -66,9 +66,9 @@ jobs:
           grep -Fq '/works/handa-amos-rexx/' works.html
           grep -Fq '/works/anjo-repair/' works.html
           grep -Fq '/works/yokkaichi-repair/' works.html
-          grep -Fq 'works/handa-amos-rexx' sitemap.xml
-          grep -Fq 'works/anjo-repair' sitemap.xml
-          grep -Fq 'works/yokkaichi-repair' sitemap.xml
+          grep -Fq 'https://ayuto.xsrv.jp/works/handa-amos-rexx/' sitemap.xml
+          grep -Fq 'https://ayuto.xsrv.jp/works/anjo-repair/' sitemap.xml
+          grep -Fq 'https://ayuto.xsrv.jp/works/yokkaichi-repair/' sitemap.xml
           grep -Fq 'RewriteRule ^works/handa-amos-rexx/?$ works-handa-amos-rexx.html [L]' .htaccess
           grep -Fq 'RewriteRule ^works/anjo-repair/?$ works-anjo-repair.html [L]' .htaccess
           grep -Fq 'RewriteRule ^works/yokkaichi-repair/?$ works-yokkaichi-repair.html [L]' .htaccess
@@ -119,8 +119,7 @@ jobs:
               p = Parser()
               p.feed(text)
               assert p.links, f'no links: {name}'
-              for href in p.links:
-                  assert not href.startswith('javascript:'), (name, href)
+              assert all(not href.startswith('javascript:') for href in p.links), name
 
           root = ET.parse('sitemap.xml').getroot()
           ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
@@ -130,18 +129,20 @@ jobs:
               assert url in locs, f'missing sitemap URL: {url}'
 
           ht = Path('.htaccess').read_text(encoding='utf-8')
-          for route, file in [
+          for route, filename in [
               ('works/handa-amos-rexx', 'works-handa-amos-rexx.html'),
               ('works/anjo-repair', 'works-anjo-repair.html'),
               ('works/yokkaichi-repair', 'works-yokkaichi-repair.html'),
           ]:
-              assert f'RewriteRule ^{route}/?$ {file} [L]' in ht
+              assert f'RewriteRule ^{route}/?$ {filename} [L]' in ht
 
           print('SOURCE VALIDATION OK')
           PY
 
           while IFS= read -r f; do sha256sum "$f"; done < /tmp/deploy-files.txt > /tmp/source.sha256
-          echo "Validated $(wc -l < /tmp/deploy-files.txt) deployment files"
+          tar -czf /tmp/deploy-line-seo.tar.gz -T /tmp/deploy-files.txt
+          test -s /tmp/deploy-line-seo.tar.gz
+          echo "Validated and archived $(wc -l < /tmp/deploy-files.txt) files"
 
       - name: Configure SSH key
         env:
@@ -155,7 +156,7 @@ jobs:
           chmod 600 ~/.ssh/id_xserver
           ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
 
-      - name: Back up production and git-test files
+      - name: Back up production and git-test before deployment
         run: |
           set -euo pipefail
           SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
@@ -179,6 +180,7 @@ jobs:
 
           $SCP /tmp/deploy-files.txt "$REMOTE:$BACKUP/files.txt"
           $SCP /tmp/source.sha256 "$REMOTE:$BACKUP/source.sha256"
+          $SCP /tmp/deploy-line-seo.tar.gz "$REMOTE:$BACKUP/deploy-line-seo.tar.gz"
 
           $SSH "$REMOTE" "ROOT='$ROOT' TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE_SCRIPT'
           set -euo pipefail
@@ -197,10 +199,12 @@ jobs:
           done < "$BACKUP/files.txt"
           test -s "$BACKUP/production-existing.txt"
           test -s "$BACKUP/files.txt"
+          test -s "$BACKUP/source.sha256"
+          test -s "$BACKUP/deploy-line-seo.tar.gz"
           echo "BACKUP READY: $BACKUP"
           REMOTE_SCRIPT
 
-      - name: Deploy to git-test and verify exact files
+      - name: Deploy immutable archive to git-test and verify
         run: |
           set -Eeuo pipefail
           SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
@@ -213,7 +217,7 @@ jobs:
           rollback_test() {
             trap - ERR
             set +e
-            echo 'git-test verification failed; restoring previous git-test files'
+            echo 'git-test verification failed; restoring previous files'
             $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP_DIR' bash -s" <<'ROLLBACK'
             set -eu
             while IFS= read -r f; do
@@ -230,17 +234,13 @@ jobs:
           }
           trap rollback_test ERR
 
-          uploaded=0
-          for i in 1 2 3; do
-            if rsync -az --files-from=/tmp/deploy-files.txt -e "$SSH" ./ "$REMOTE:$TEST/"; then
-              uploaded=1
-              break
-            fi
-            sleep 8
-          done
-          test "$uploaded" -eq 1
-
-          $SSH "$REMOTE" "cd '$TEST' && sha256sum -c '$BACKUP_DIR/source.sha256'"
+          $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP_DIR' bash -s" <<'DEPLOY'
+          set -euo pipefail
+          mkdir -p "$TEST"
+          tar -xzf "$BACKUP/deploy-line-seo.tar.gz" -C "$TEST"
+          cd "$TEST"
+          sha256sum -c "$BACKUP/source.sha256"
+          DEPLOY
 
           while IFS= read -r f; do
             [ "$f" = '.htaccess' ] && continue
@@ -264,10 +264,10 @@ jobs:
           grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/check-test-contact
           grep -Fq '/works/anjo-repair/' /tmp/check-test-works
           grep -Fq 'LINEで相談' /tmp/check-test-js
-          echo 'GIT-TEST PUBLIC AND SHA VERIFICATION OK'
+          echo 'GIT-TEST PUBLIC, CONTENT AND SHA VERIFICATION OK'
           trap - ERR
 
-      - name: Deploy to production, verify, and rollback automatically on any failure
+      - name: Deploy same archive to production and verify with automatic rollback
         run: |
           set -Eeuo pipefail
           SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
@@ -279,7 +279,7 @@ jobs:
           rollback_production() {
             trap - ERR
             set +e
-            echo 'PRODUCTION verification failed; restoring pre-deploy production files'
+            echo 'PRODUCTION verification failed; restoring pre-deploy files'
             $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" <<'ROLLBACK'
             set -eu
             while IFS= read -r f; do
@@ -292,22 +292,17 @@ jobs:
             done < "$BACKUP/files.txt"
             echo 'PRODUCTION ROLLBACK COMPLETE'
             ROLLBACK
-            echo 'Rollback attempted; workflow will fail for manual review.'
+            echo 'Rollback attempted; workflow will fail for review.'
             exit 1
           }
           trap rollback_production ERR
 
-          uploaded=0
-          for i in 1 2 3; do
-            if rsync -az --files-from=/tmp/deploy-files.txt -e "$SSH" ./ "$REMOTE:$ROOT/"; then
-              uploaded=1
-              break
-            fi
-            sleep 8
-          done
-          test "$uploaded" -eq 1
-
-          $SSH "$REMOTE" "cd '$ROOT' && sha256sum -c '$BACKUP_DIR/source.sha256'"
+          $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" <<'DEPLOY'
+          set -euo pipefail
+          tar -xzf "$BACKUP/deploy-line-seo.tar.gz" -C "$ROOT"
+          cd "$ROOT"
+          sha256sum -c "$BACKUP/source.sha256"
+          DEPLOY
 
           while IFS= read -r f; do
             [ "$f" = '.htaccess' ] && continue
@@ -363,11 +358,10 @@ jobs:
             echo
             echo "- Commit: $GITHUB_SHA"
             echo "- Backup: $BACKUP_DIR"
-            echo '- git-test verified before production'
-            echo '- Production file SHA-256 matched repository source'
-            echo '- Public HTML/JS/sitemap SHA-256 matched repository source'
-            echo '- Core clean URLs returned HTTP 200'
-            echo '- New regional case URLs returned HTTP 200'
-            echo '- LINE, pricing, privacy and case content checks passed'
-            echo '- Custom 404 returned HTTP 404'
+            echo '- Immutable archive deployed to git-test first'
+            echo '- git-test SHA-256 and public checks passed'
+            echo '- The exact same archive was deployed to production'
+            echo '- Production SHA-256 and public HTML/JS/sitemap checks passed'
+            echo '- Core and new clean URLs returned HTTP 200'
+            echo '- LINE, pricing, privacy, regional case and 404 checks passed'
           } >> "$GITHUB_STEP_SUMMARY"
