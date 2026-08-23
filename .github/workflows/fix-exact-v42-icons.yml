@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/fix-exact-v42-icons.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/favicon-pr-trigger.txt'
   workflow_dispatch:
 
 permissions:
@@ -14,8 +18,10 @@ jobs:
   favicon:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Update favicon references only
         run: |
@@ -28,7 +34,6 @@ jobs:
           for name in pages:
               p = Path(name)
               s = p.read_text(encoding='utf-8')
-              # Remove all old browser-favicon declarations, leave apple-touch-icon and brand-mark untouched.
               s = re.sub(r'<link rel="icon"[^>]*>\s*', '', s)
               s = re.sub(r'<link rel="shortcut icon"[^>]*>\s*', '', s)
               marker = '<link rel="apple-touch-icon"'
@@ -43,7 +48,6 @@ jobs:
             grep -Fq '/images/favicon-32-20260823.png' "$f"
             grep -Fq '/images/favicon-16-20260823.png' "$f"
             grep -Fq '/favicon-20260823.ico' "$f"
-            grep -Fq 'images/brand-icon.png' "$f" || true
           done
           echo '8d5ca7f45c5425c5beb5e02ede398bb39a68a944478c75519d540bd59c9055a8  images/favicon-16-20260823.png' | sha256sum -c -
           echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  images/favicon-32-20260823.png' | sha256sum -c -
@@ -65,6 +69,7 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -eu
+          test -n "$SSH_PRIVATE_KEY"
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
           chmod 600 ~/.ssh/id_xserver
