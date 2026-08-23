@@ -1,1 +1,2 @@
 Trigger the same-repository favicon deployment workflow on 2026-08-23.
+Retry with dedicated 16px and 32px PNG favicons only.
