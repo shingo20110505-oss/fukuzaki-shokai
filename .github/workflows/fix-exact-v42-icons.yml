@@ -1,4 +1,4 @@
-name: Fix exact v4.2 brand icons permanently
+name: Finalize dedicated browser favicon
 
 on:
   push:
@@ -11,106 +11,52 @@ permissions:
   contents: write
 
 jobs:
-  fix-icons:
+  favicon:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Restore exact approved icon PNG
-        run: |
-          set -eu
-          mkdir -p images
-          cat \
-            deploy/icon-source/brand-part-00x-00 \
-            deploy/icon-source/brand-part-00x-01 \
-            deploy/icon-source/brand-part-00x-02 \
-            deploy/icon-source/brand-part-00x-03 \
-            deploy/icon-source/brand-part-00x-04 \
-            deploy/icon-source/brand-part-00x-05 \
-            deploy/icon-source/brand-part-00x-06 \
-            deploy/icon-source/brand-part-00x-07 \
-            deploy/icon-source/brand-part-01 \
-            deploy/icon-source/brand-part-02x-00 \
-            deploy/icon-source/brand-part-02x-01 \
-            deploy/icon-source/brand-part-02x-02 \
-            deploy/icon-source/brand-part-02x-03a \
-            deploy/icon-source/brand-part-02x-03b \
-            deploy/icon-source/brand-part-02x-03c0 \
-            deploy/icon-source/brand-part-02x-03c1 \
-            deploy/icon-source/brand-part-02x-03c2 \
-            deploy/icon-source/brand-part-02x-03c3 \
-            deploy/icon-source/brand-part-02x-03c4 \
-            deploy/icon-source/brand-part-02x-03d \
-            deploy/icon-source/brand-part-02x-04 \
-            deploy/icon-source/brand-part-02x-05 \
-            deploy/icon-source/brand-part-02x-06 \
-            deploy/icon-source/brand-part-02x-07 \
-            deploy/icon-source/brand-part-03 \
-            deploy/icon-source/brand-part-04 \
-            deploy/icon-source/brand-part-05 \
-            | tr -d '\r\n\t ' > /tmp/brand-icon.b64
-          base64 -d /tmp/brand-icon.b64 > images/brand-icon.png
-          cp images/brand-icon.png images/apple-touch-icon.png
-          cp images/brand-icon.png images/favicon.png
-          echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/brand-icon.png' | sha256sum -c -
-          echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/apple-touch-icon.png' | sha256sum -c -
-          echo 'cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  images/favicon.png' | sha256sum -c -
-
-      - name: Separate icon references on site pages
+      - name: Update favicon references only
         run: |
           set -eu
           python3 - <<'PY'
           from pathlib import Path
           import re
-
-          version = '20260814f'
           pages = ['index.html','sales.html','repair.html','models.html','works.html','company.html','faq.html','contact.html','privacy.html','404.html']
+          block = '<link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32-20260823.png">\n<link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16-20260823.png">\n<link rel="shortcut icon" href="/favicon-20260823.ico">\n'
           for name in pages:
               p = Path(name)
               s = p.read_text(encoding='utf-8')
-              s = re.sub(
-                  r'<link rel="icon" href="images/(?:apple-touch-icon\.png|favicon\.svg|favicon\.png|brand-icon\.png)(?:\?v=[^"]+)?"(?: type="[^"]+")?>',
-                  f'<link rel="icon" href="images/favicon.png?v={version}" type="image/png">',
-                  s,
-              )
-              s = re.sub(
-                  r'<link rel="apple-touch-icon" href="images/(?:apple-touch-icon\.png|brand-icon\.png)(?:\?v=[^"]+)?">',
-                  f'<link rel="apple-touch-icon" href="images/apple-touch-icon.png?v={version}">',
-                  s,
-              )
-              s = re.sub(
-                  r'(class="brand-mark(?: [^"]*)?"\s+src=")images/(?:apple-touch-icon\.png|favicon\.svg|favicon\.png|brand-icon-v42\.svg|brand-icon\.png)(?:\?v=[^"]+)?("[^>]*>)',
-                  rf'\1images/brand-icon.png?v={version}\2',
-                  s,
-              )
+              # Remove all old browser-favicon declarations, leave apple-touch-icon and brand-mark untouched.
+              s = re.sub(r'<link rel="icon"[^>]*>\s*', '', s)
+              s = re.sub(r'<link rel="shortcut icon"[^>]*>\s*', '', s)
+              marker = '<link rel="apple-touch-icon"'
+              pos = s.find(marker)
+              if pos == -1:
+                  raise SystemExit(f'apple-touch-icon marker missing in {name}')
+              s = s[:pos] + block + s[pos:]
               p.write_text(s, encoding='utf-8')
           PY
 
-          pages='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html'
-          for f in $pages; do
-            grep -Fq 'images/favicon.png?v=20260814f' "$f"
-            grep -Fq 'images/apple-touch-icon.png?v=20260814f' "$f"
-            if grep -Fq 'class="brand-mark' "$f"; then
-              grep -Fq 'images/brand-icon.png?v=20260814f' "$f"
-            fi
-            if grep -Fq 'images/favicon.svg' "$f"; then
-              echo "Old favicon SVG reference remains in $f"
-              exit 1
-            fi
+          for f in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
+            grep -Fq '/images/favicon-32-20260823.png' "$f"
+            grep -Fq '/images/favicon-16-20260823.png' "$f"
+            grep -Fq '/favicon-20260823.ico' "$f"
+            grep -Fq 'images/brand-icon.png' "$f" || true
           done
-          rm -f images/favicon.svg
+          echo '8d5ca7f45c5425c5beb5e02ede398bb39a68a944478c75519d540bd59c9055a8  images/favicon-16-20260823.png' | sha256sum -c -
+          echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  images/favicon-32-20260823.png' | sha256sum -c -
+          echo '24afddbd7a5da6bb345e95125b10e0d8bd761ea8450a51b02a783284415f9cbc  favicon-20260823.ico' | sha256sum -c -
 
-      - name: Commit permanent source fix
+      - name: Commit permanent source change
         run: |
           set -eu
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html images
+          git add index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html
           if ! git diff --cached --quiet; then
-            git commit -m 'Use exact approved v4.2 icon PNG everywhere'
+            git commit -m 'Fix browser tab favicon permanently'
             git push origin HEAD:main
           fi
 
@@ -119,64 +65,44 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -eu
-          test -n "$SSH_PRIVATE_KEY"
           mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
           chmod 600 ~/.ssh/id_xserver
           ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
 
-      - name: Deploy exact icons to production and git-test
+      - name: Deploy favicon to production and git-test
         run: |
           set -eu
           SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
           REMOTE='ayuto@sv16618.xserver.jp'
           ROOT='/home/ayuto/ayuto.xsrv.jp/public_html'
           TEST="$ROOT/git-test"
-          BACKUP="/home/ayuto/deploy-backups/exact-v42-icons-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
-
-          connected=0
+          pages='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html'
+          ok=0
           for i in 1 2 3 4 5; do
-            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$TEST' && mkdir -p /home/ayuto/deploy-backups"; then
-              connected=1
-              break
-            fi
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$TEST'"; then ok=1; break; fi
             sleep 8
           done
-          test "$connected" -eq 1
-
-          $SSH "$REMOTE" "cd '$ROOT' && tar -czf '$BACKUP' --ignore-failed-read *.html images/apple-touch-icon.png images/favicon.png images/favicon.svg images/brand-icon.png"
-
-          pages='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html'
+          test "$ok" -eq 1
           for target in "$ROOT" "$TEST"; do
             rsync -az -e "$SSH" $pages "$REMOTE:$target/"
-            rsync -az -e "$SSH" images/brand-icon.png images/apple-touch-icon.png images/favicon.png "$REMOTE:$target/images/"
-            $SSH "$REMOTE" "rm -f '$target/images/favicon.svg'"
+            rsync -az -e "$SSH" images/favicon-16-20260823.png images/favicon-32-20260823.png "$REMOTE:$target/images/"
+            rsync -az -e "$SSH" favicon-20260823.ico "$REMOTE:$target/"
           done
 
-          $SSH "$REMOTE" "sha256sum '$ROOT/images/brand-icon.png' '$ROOT/images/apple-touch-icon.png' '$ROOT/images/favicon.png'"
-
-      - name: Verify exact icons publicly
+      - name: Verify public favicon
         run: |
           set -eu
           BASE='https://ayuto.xsrv.jp'
-          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-
-          for page in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
-            curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$BASE/$page?verify=$NONCE" -o "/tmp/$page"
-            grep -Fq 'images/favicon.png?v=20260814f' "/tmp/$page"
-            grep -Fq 'images/apple-touch-icon.png?v=20260814f' "/tmp/$page"
-            if grep -Fq 'class="brand-mark' "/tmp/$page"; then
-              grep -Fq 'images/brand-icon.png?v=20260814f' "/tmp/$page"
-            fi
-            if grep -Fq 'images/favicon.svg' "/tmp/$page"; then exit 1; fi
-          done
-
-          for name in brand-icon.png apple-touch-icon.png favicon.png; do
-            curl -fsSL "$BASE/images/$name?verify=$NONCE" -o "/tmp/$name"
-            echo "cf97bcb23cc490417e42a7d5eed5cc5e9e20d9aefca9ae4a21eaef0488082db2  /tmp/$name" | sha256sum -c -
-          done
-
-          code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/images/favicon.svg?verify=$NONCE")
-          test "$code" = '404'
-          echo 'PUBLIC EXACT APPROVED v4.2 ICON VERIFIED'
+          N="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/index.html?verify=$N" -o /tmp/index.html
+          grep -Fq '/images/favicon-32-20260823.png' /tmp/index.html
+          grep -Fq '/images/favicon-16-20260823.png' /tmp/index.html
+          grep -Fq '/favicon-20260823.ico' /tmp/index.html
+          curl -fsSL "$BASE/images/favicon-16-20260823.png?verify=$N" -o /tmp/f16.png
+          curl -fsSL "$BASE/images/favicon-32-20260823.png?verify=$N" -o /tmp/f32.png
+          curl -fsSL "$BASE/favicon-20260823.ico?verify=$N" -o /tmp/favicon.ico
+          echo '8d5ca7f45c5425c5beb5e02ede398bb39a68a944478c75519d540bd59c9055a8  /tmp/f16.png' | sha256sum -c -
+          echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  /tmp/f32.png' | sha256sum -c -
+          echo '24afddbd7a5da6bb345e95125b10e0d8bd761ea8450a51b02a783284415f9cbc  /tmp/favicon.ico' | sha256sum -c -
+          echo 'PUBLIC FAVICON 20260823 VERIFIED'
