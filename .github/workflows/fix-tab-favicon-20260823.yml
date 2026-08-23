@@ -1,0 +1,116 @@
+name: Fix browser tab favicon 20260823
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-tab-favicon-20260823.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-favicon:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update favicon links on site pages
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          pages = ['index.html','sales.html','repair.html','models.html','works.html','company.html','faq.html','contact.html','privacy.html','404.html']
+          links = '''<link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32-20260823.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16-20260823.png">
+<link rel="shortcut icon" href="/favicon-20260823.ico">'''
+
+          for name in pages:
+              p = Path(name)
+              s = p.read_text(encoding='utf-8')
+              s, n = re.subn(r'<link rel="icon"[^>]*>\s*', links + '\n', s, count=1)
+              if n != 1:
+                  raise SystemExit(f'favicon link not found in {name}')
+              # Remove any duplicate shortcut/favicon links left from older fixes.
+              s = re.sub(r'<link rel="shortcut icon"[^>]*>\s*', '', s)
+              # Reinsert the new shortcut link after the 16px link if removed by cleanup.
+              needle = '<link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16-20260823.png">\n'
+              if '<link rel="shortcut icon" href="/favicon-20260823.ico">' not in s:
+                  s = s.replace(needle, needle + '<link rel="shortcut icon" href="/favicon-20260823.ico">\n', 1)
+              p.write_text(s, encoding='utf-8')
+          PY
+
+          for f in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
+            grep -Fq '/images/favicon-32-20260823.png' "$f"
+            grep -Fq '/images/favicon-16-20260823.png' "$f"
+            grep -Fq '/favicon-20260823.ico' "$f"
+          done
+
+          echo '8d5ca7f45c5425c5beb5e02ede398bb39a68a944478c75519d540bd59c9055a8  images/favicon-16-20260823.png' | sha256sum -c -
+          echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  images/favicon-32-20260823.png' | sha256sum -c -
+          echo '24afddbd7a5da6bb345e95125b10e0d8bd761ea8450a51b02a783284415f9cbc  favicon-20260823.ico' | sha256sum -c -
+
+      - name: Commit permanent favicon references
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html
+          if ! git diff --cached --quiet; then
+            git commit -m 'Use dedicated browser tab favicon assets'
+            git push origin HEAD:main
+          fi
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Deploy favicon fix to production and git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE='ayuto@sv16618.xserver.jp'
+          ROOT='/home/ayuto/ayuto.xsrv.jp/public_html'
+          TEST="$ROOT/git-test"
+          pages='index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html'
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$TEST'"; then connected=1; break; fi
+            sleep 8
+          done
+          test "$connected" -eq 1
+
+          for target in "$ROOT" "$TEST"; do
+            rsync -az -e "$SSH" $pages "$REMOTE:$target/"
+            rsync -az -e "$SSH" images/favicon-16-20260823.png images/favicon-32-20260823.png "$REMOTE:$target/images/"
+            rsync -az -e "$SSH" favicon-20260823.ico "$REMOTE:$target/"
+          done
+
+      - name: Verify public favicon over HTTPS
+        run: |
+          set -eu
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/index.html?verify=$NONCE" -o /tmp/index.html
+          grep -Fq '/images/favicon-32-20260823.png' /tmp/index.html
+          grep -Fq '/images/favicon-16-20260823.png' /tmp/index.html
+          grep -Fq '/favicon-20260823.ico' /tmp/index.html
+
+          curl -fsSL "$BASE/images/favicon-16-20260823.png?verify=$NONCE" -o /tmp/f16.png
+          curl -fsSL "$BASE/images/favicon-32-20260823.png?verify=$NONCE" -o /tmp/f32.png
+          curl -fsSL "$BASE/favicon-20260823.ico?verify=$NONCE" -o /tmp/favicon.ico
+          echo '8d5ca7f45c5425c5beb5e02ede398bb39a68a944478c75519d540bd59c9055a8  /tmp/f16.png' | sha256sum -c -
+          echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  /tmp/f32.png' | sha256sum -c -
+          echo '24afddbd7a5da6bb345e95125b10e0d8bd761ea8450a51b02a783284415f9cbc  /tmp/favicon.ico' | sha256sum -c -
+          echo 'PUBLIC TAB FAVICON VERIFIED'
