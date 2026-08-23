@@ -12,6 +12,21 @@
 
   let floatingLine = document.querySelector('.floating-line');
   if (!floatingLine && floatingCall) {
+    const quickActionStyle = document.createElement('style');
+    quickActionStyle.setAttribute('data-line-quick-action-style', '');
+    quickActionStyle.textContent = `
+      .floating-line{display:none}
+      @media(max-width:760px){
+        .floating-call{left:14px!important;right:calc(50% + 6px)!important;padding:12px 10px!important}
+        .floating-call strong{display:none!important}
+        .floating-call span{font-size:15px!important;white-space:nowrap}
+        .floating-line{position:fixed;z-index:950;left:calc(50% + 6px);right:14px;bottom:calc(9px + env(safe-area-inset-bottom));min-height:54px;display:flex;align-items:center;justify-content:center;padding:12px 10px;border-radius:12px;background:#258a6c;color:#fff;box-shadow:0 14px 34px rgba(13,41,64,.25);opacity:0;visibility:hidden;transform:translateY(12px);transition:opacity .25s var(--ease),visibility .25s var(--ease),transform .25s var(--ease)}
+        .floating-line.is-active{opacity:1;visibility:visible;transform:none}
+        .floating-line span{font-size:15px;font-weight:800;white-space:nowrap}
+      }
+    `;
+    document.head.appendChild(quickActionStyle);
+
     floatingLine = document.createElement('a');
     floatingLine.className = 'floating-line';
     floatingLine.href = 'https://line.me/R/ti/p/@761qehyo';
