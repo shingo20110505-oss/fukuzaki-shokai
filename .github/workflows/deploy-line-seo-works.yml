@@ -1,0 +1,373 @@
+name: Deploy LINE, pricing and regional works update
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'repair.html'
+      - 'contact.html'
+      - 'faq.html'
+      - 'privacy.html'
+      - 'works.html'
+      - 'works-handa-amos-rexx.html'
+      - 'works-anjo-repair.html'
+      - 'works-yokkaichi-repair.html'
+      - 'sitemap.xml'
+      - '.htaccess'
+      - 'js/main.js'
+      - '.github/workflows/deploy-line-seo-works.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fukuzaki-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Validate source before any server change
+        run: |
+          set -euo pipefail
+
+          cat > /tmp/deploy-files.txt <<'FILES'
+          repair.html
+          contact.html
+          faq.html
+          privacy.html
+          works.html
+          works-handa-amos-rexx.html
+          works-anjo-repair.html
+          works-yokkaichi-repair.html
+          sitemap.xml
+          .htaccess
+          js/main.js
+          FILES
+
+          while IFS= read -r f; do
+            test -s "$f" || { echo "Missing or empty: $f"; exit 1; }
+          done < /tmp/deploy-files.txt
+
+          node --check js/main.js
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' repair.html
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' contact.html
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' js/main.js
+          grep -Fq '料金が変わる主な要素' repair.html
+          grep -Fq '修理費用はいくらですか' faq.html
+          grep -Fq 'LINEでのお問い合わせ' privacy.html
+          grep -Fq '/works/handa-amos-rexx/' works.html
+          grep -Fq '/works/anjo-repair/' works.html
+          grep -Fq '/works/yokkaichi-repair/' works.html
+          grep -Fq 'works/handa-amos-rexx' sitemap.xml
+          grep -Fq 'works/anjo-repair' sitemap.xml
+          grep -Fq 'works/yokkaichi-repair' sitemap.xml
+          grep -Fq 'RewriteRule ^works/handa-amos-rexx/?$ works-handa-amos-rexx.html [L]' .htaccess
+          grep -Fq 'RewriteRule ^works/anjo-repair/?$ works-anjo-repair.html [L]' .htaccess
+          grep -Fq 'RewriteRule ^works/yokkaichi-repair/?$ works-yokkaichi-repair.html [L]' .htaccess
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from html.parser import HTMLParser
+          import re
+          import xml.etree.ElementTree as ET
+
+          html_files = [
+              'repair.html', 'contact.html', 'faq.html', 'privacy.html', 'works.html',
+              'works-handa-amos-rexx.html', 'works-anjo-repair.html', 'works-yokkaichi-repair.html'
+          ]
+          expected_canonicals = {
+              'works-handa-amos-rexx.html': 'https://ayuto.xsrv.jp/works/handa-amos-rexx/',
+              'works-anjo-repair.html': 'https://ayuto.xsrv.jp/works/anjo-repair/',
+              'works-yokkaichi-repair.html': 'https://ayuto.xsrv.jp/works/yokkaichi-repair/',
+          }
+          forbidden = ('【要確認', 'TODO', 'localhost', 'example.com', 'lorem ipsum')
+
+          class Parser(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=True)
+                  self.links = []
+              def handle_starttag(self, tag, attrs):
+                  attrs = dict(attrs)
+                  if tag == 'a' and attrs.get('href'):
+                      self.links.append(attrs['href'])
+
+          titles = set()
+          for name in html_files:
+              text = Path(name).read_text(encoding='utf-8')
+              assert '<!doctype html>' in text.lower(), name
+              assert '<html lang="ja">' in text, name
+              assert '<main id="main">' in text, name
+              assert '</html>' in text, name
+              assert not any(token.lower() in text.lower() for token in forbidden), name
+              title = re.search(r'<title>(.*?)</title>', text, re.S)
+              assert title and title.group(1).strip(), name
+              if name.startswith('works-'):
+                  assert title.group(1) not in titles, f'duplicate title: {name}'
+                  titles.add(title.group(1))
+              canon = re.search(r'<link rel="canonical" href="([^"]+)">', text)
+              assert canon, f'missing canonical: {name}'
+              if name in expected_canonicals:
+                  assert canon.group(1) == expected_canonicals[name], (name, canon.group(1))
+              p = Parser()
+              p.feed(text)
+              assert p.links, f'no links: {name}'
+              for href in p.links:
+                  assert not href.startswith('javascript:'), (name, href)
+
+          root = ET.parse('sitemap.xml').getroot()
+          ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+          locs = [n.text for n in root.findall('s:url/s:loc', ns)]
+          assert len(locs) == len(set(locs)), 'duplicate sitemap URLs'
+          for url in expected_canonicals.values():
+              assert url in locs, f'missing sitemap URL: {url}'
+
+          ht = Path('.htaccess').read_text(encoding='utf-8')
+          for route, file in [
+              ('works/handa-amos-rexx', 'works-handa-amos-rexx.html'),
+              ('works/anjo-repair', 'works-anjo-repair.html'),
+              ('works/yokkaichi-repair', 'works-yokkaichi-repair.html'),
+          ]:
+              assert f'RewriteRule ^{route}/?$ {file} [L]' in ht
+
+          print('SOURCE VALIDATION OK')
+          PY
+
+          while IFS= read -r f; do sha256sum "$f"; done < /tmp/deploy-files.txt > /tmp/source.sha256
+          echo "Validated $(wc -l < /tmp/deploy-files.txt) deployment files"
+
+      - name: Configure SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY" || { echo 'SSH_PRIVATE_KEY is missing'; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Back up production and git-test files
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/line-seo-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "BACKUP_DIR=$BACKUP" >> "$GITHUB_ENV"
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            echo "SSH connection attempt $i"
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$TEST' && mkdir -p '$BACKUP'"; then
+              connected=1
+              break
+            fi
+            sleep 8
+          done
+          test "$connected" -eq 1 || { echo 'SSH connection failed after retries'; exit 1; }
+
+          $SCP /tmp/deploy-files.txt "$REMOTE:$BACKUP/files.txt"
+          $SCP /tmp/source.sha256 "$REMOTE:$BACKUP/source.sha256"
+
+          $SSH "$REMOTE" "ROOT='$ROOT' TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          mkdir -p "$BACKUP/production" "$BACKUP/git-test"
+          : > "$BACKUP/production-existing.txt"
+          : > "$BACKUP/git-test-existing.txt"
+          while IFS= read -r f; do
+            for scope in production git-test; do
+              if [ "$scope" = production ]; then base="$ROOT"; else base="$TEST"; fi
+              if [ -f "$base/$f" ]; then
+                mkdir -p "$BACKUP/$scope/$(dirname "$f")"
+                cp -p "$base/$f" "$BACKUP/$scope/$f"
+                printf '%s\n' "$f" >> "$BACKUP/${scope}-existing.txt"
+              fi
+            done
+          done < "$BACKUP/files.txt"
+          test -s "$BACKUP/production-existing.txt"
+          test -s "$BACKUP/files.txt"
+          echo "BACKUP READY: $BACKUP"
+          REMOTE_SCRIPT
+
+      - name: Deploy to git-test and verify exact files
+        run: |
+          set -Eeuo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BASE="https://ayuto.xsrv.jp"
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-test"
+
+          rollback_test() {
+            trap - ERR
+            set +e
+            echo 'git-test verification failed; restoring previous git-test files'
+            $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP_DIR' bash -s" <<'ROLLBACK'
+            set -eu
+            while IFS= read -r f; do
+              if grep -Fxq "$f" "$BACKUP/git-test-existing.txt"; then
+                mkdir -p "$TEST/$(dirname "$f")"
+                cp -p "$BACKUP/git-test/$f" "$TEST/$f"
+              else
+                rm -f "$TEST/$f"
+              fi
+            done < "$BACKUP/files.txt"
+            echo 'GIT-TEST ROLLBACK COMPLETE'
+            ROLLBACK
+            exit 1
+          }
+          trap rollback_test ERR
+
+          uploaded=0
+          for i in 1 2 3; do
+            if rsync -az --files-from=/tmp/deploy-files.txt -e "$SSH" ./ "$REMOTE:$TEST/"; then
+              uploaded=1
+              break
+            fi
+            sleep 8
+          done
+          test "$uploaded" -eq 1
+
+          $SSH "$REMOTE" "cd '$TEST' && sha256sum -c '$BACKUP_DIR/source.sha256'"
+
+          while IFS= read -r f; do
+            [ "$f" = '.htaccess' ] && continue
+            expected="$(sha256sum "$f" | awk '{print $1}')"
+            tmp="/tmp/public-test-$(echo "$f" | tr '/.' '__')"
+            curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' "$BASE/git-test/$f?verify=$NONCE" -o "$tmp"
+            actual="$(sha256sum "$tmp" | awk '{print $1}')"
+            test "$actual" = "$expected" || { echo "Public git-test SHA mismatch: $f"; exit 1; }
+          done < /tmp/deploy-files.txt
+
+          for route in repair contact faq privacy works works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            code="$(curl -sS -L --retry 3 -o /tmp/git-test-route -w '%{http_code}' -H 'Cache-Control: no-cache' "$BASE/git-test/$route/?verify=$NONCE")"
+            test "$code" = 200 || { echo "git-test route failed: $route ($code)"; exit 1; }
+          done
+
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/repair/?verify=$NONCE" -o /tmp/check-test-repair
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/contact/?verify=$NONCE" -o /tmp/check-test-contact
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/works/?verify=$NONCE" -o /tmp/check-test-works
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/git-test/js/main.js?verify=$NONCE" -o /tmp/check-test-js
+          grep -Fq '料金が変わる主な要素' /tmp/check-test-repair
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/check-test-contact
+          grep -Fq '/works/anjo-repair/' /tmp/check-test-works
+          grep -Fq 'LINEで相談' /tmp/check-test-js
+          echo 'GIT-TEST PUBLIC AND SHA VERIFICATION OK'
+          trap - ERR
+
+      - name: Deploy to production, verify, and rollback automatically on any failure
+        run: |
+          set -Eeuo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          BASE="https://ayuto.xsrv.jp"
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-prod"
+
+          rollback_production() {
+            trap - ERR
+            set +e
+            echo 'PRODUCTION verification failed; restoring pre-deploy production files'
+            $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" <<'ROLLBACK'
+            set -eu
+            while IFS= read -r f; do
+              if grep -Fxq "$f" "$BACKUP/production-existing.txt"; then
+                mkdir -p "$ROOT/$(dirname "$f")"
+                cp -p "$BACKUP/production/$f" "$ROOT/$f"
+              else
+                rm -f "$ROOT/$f"
+              fi
+            done < "$BACKUP/files.txt"
+            echo 'PRODUCTION ROLLBACK COMPLETE'
+            ROLLBACK
+            echo 'Rollback attempted; workflow will fail for manual review.'
+            exit 1
+          }
+          trap rollback_production ERR
+
+          uploaded=0
+          for i in 1 2 3; do
+            if rsync -az --files-from=/tmp/deploy-files.txt -e "$SSH" ./ "$REMOTE:$ROOT/"; then
+              uploaded=1
+              break
+            fi
+            sleep 8
+          done
+          test "$uploaded" -eq 1
+
+          $SSH "$REMOTE" "cd '$ROOT' && sha256sum -c '$BACKUP_DIR/source.sha256'"
+
+          while IFS= read -r f; do
+            [ "$f" = '.htaccess' ] && continue
+            expected="$(sha256sum "$f" | awk '{print $1}')"
+            tmp="/tmp/public-prod-$(echo "$f" | tr '/.' '__')"
+            curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' "$BASE/$f?verify=$NONCE" -o "$tmp"
+            actual="$(sha256sum "$tmp" | awk '{print $1}')"
+            test "$actual" = "$expected" || { echo "Public production SHA mismatch: $f"; exit 1; }
+          done < /tmp/deploy-files.txt
+
+          for route in '' sales repair models works company faq contact privacy works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            if [ -z "$route" ]; then url="$BASE/?verify=$NONCE"; label='home'; else url="$BASE/$route/?verify=$NONCE"; label="$route"; fi
+            code="$(curl -sS -L --retry 3 -o /tmp/prod-route -w '%{http_code}' -H 'Cache-Control: no-cache' "$url")"
+            test "$code" = 200 || { echo "Production route failed: $label ($code)"; exit 1; }
+          done
+
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/repair/?verify=$NONCE" -o /tmp/check-prod-repair
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/contact/?verify=$NONCE" -o /tmp/check-prod-contact
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/faq/?verify=$NONCE" -o /tmp/check-prod-faq
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/privacy/?verify=$NONCE" -o /tmp/check-prod-privacy
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/?verify=$NONCE" -o /tmp/check-prod-works
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/handa-amos-rexx/?verify=$NONCE" -o /tmp/check-prod-handa
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/anjo-repair/?verify=$NONCE" -o /tmp/check-prod-anjo
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/yokkaichi-repair/?verify=$NONCE" -o /tmp/check-prod-yokkaichi
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sitemap.xml?verify=$NONCE" -o /tmp/check-prod-sitemap
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" -o /tmp/check-prod-js
+
+          grep -Fq '料金が変わる主な要素' /tmp/check-prod-repair
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/check-prod-repair
+          grep -Fq 'LINE公式アカウント' /tmp/check-prod-contact
+          grep -Fq 'LINEで修理や購入の相談はできますか' /tmp/check-prod-faq
+          grep -Fq 'LINEでのお問い合わせ' /tmp/check-prod-privacy
+          grep -Fq '/works/yokkaichi-repair/' /tmp/check-prod-works
+          grep -Fq '愛知県半田市・販売／納品' /tmp/check-prod-handa
+          grep -Fq '全自動麻雀卓4卓' /tmp/check-prod-anjo
+          grep -Fq '三重県四日市市・修理' /tmp/check-prod-yokkaichi
+          grep -Fq 'https://ayuto.xsrv.jp/works/anjo-repair/' /tmp/check-prod-sitemap
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/check-prod-js
+          curl -fsSI --retry 3 "$BASE/style.css?verify=$NONCE" >/dev/null
+
+          not_found="$BASE/after-check-not-found-${GITHUB_RUN_ID}/"
+          code="$(curl -sS -o /tmp/prod-404 -w '%{http_code}' "$not_found")"
+          test "$code" = 404 || { echo "404 status regression: $code"; exit 1; }
+          grep -Fq 'ページが見つかりません' /tmp/prod-404
+
+          echo 'PRODUCTION PUBLIC, ROUTE, CONTENT, SHA AND 404 VERIFICATION OK'
+          trap - ERR
+
+      - name: Record successful verification
+        run: |
+          {
+            echo '## Production deployment verified'
+            echo
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Backup: $BACKUP_DIR"
+            echo '- git-test verified before production'
+            echo '- Production file SHA-256 matched repository source'
+            echo '- Public HTML/JS/sitemap SHA-256 matched repository source'
+            echo '- Core clean URLs returned HTTP 200'
+            echo '- New regional case URLs returned HTTP 200'
+            echo '- LINE, pricing, privacy and case content checks passed'
+            echo '- Custom 404 returned HTTP 404'
+          } >> "$GITHUB_STEP_SUMMARY"
