@@ -35,9 +35,7 @@ jobs:
               s, n = re.subn(r'<link rel="icon"[^>]*>\s*', links + '\n', s, count=1)
               if n != 1:
                   raise SystemExit(f'favicon link not found in {name}')
-              # Remove any duplicate shortcut/favicon links left from older fixes.
               s = re.sub(r'<link rel="shortcut icon"[^>]*>\s*', '', s)
-              # Reinsert the new shortcut link after the 16px link if removed by cleanup.
               needle = '<link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16-20260823.png">\n'
               if '<link rel="shortcut icon" href="/favicon-20260823.ico">' not in s:
                   s = s.replace(needle, needle + '<link rel="shortcut icon" href="/favicon-20260823.ico">\n', 1)
@@ -114,3 +112,5 @@ jobs:
           echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  /tmp/f32.png' | sha256sum -c -
           echo '24afddbd7a5da6bb345e95125b10e0d8bd761ea8450a51b02a783284415f9cbc  /tmp/favicon.ico' | sha256sum -c -
           echo 'PUBLIC TAB FAVICON VERIFIED'
+
+# retrigger 2026-08-23
