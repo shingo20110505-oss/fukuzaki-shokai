@@ -9,10 +9,13 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
 ErrorDocument 404 /404.html
 
-# Preserve former clean URLs while serving static pages.
+# Preserve clean URLs while serving static pages.
 RewriteRule ^sales/?$ sales.html [L]
 RewriteRule ^repair/?$ repair.html [L]
 RewriteRule ^models/?$ models.html [L]
+RewriteRule ^works/handa-amos-rexx/?$ works-handa-amos-rexx.html [L]
+RewriteRule ^works/anjo-repair/?$ works-anjo-repair.html [L]
+RewriteRule ^works/yokkaichi-repair/?$ works-yokkaichi-repair.html [L]
 RewriteRule ^works/?$ works.html [L]
 RewriteRule ^company/?$ company.html [L]
 RewriteRule ^faq/?$ faq.html [L]
