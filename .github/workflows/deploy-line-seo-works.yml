@@ -69,9 +69,9 @@ jobs:
           grep -Fq 'works/handa-amos-rexx' sitemap.xml
           grep -Fq 'works/anjo-repair' sitemap.xml
           grep -Fq 'works/yokkaichi-repair' sitemap.xml
-          grep -Fq '^RewriteRule ^works/handa-amos-rexx/?$ works-handa-amos-rexx.html \[L\]$' .htaccess
-          grep -Fq '^RewriteRule ^works/anjo-repair/?$ works-anjo-repair.html \[L\]$' .htaccess
-          grep -Fq '^RewriteRule ^works/yokkaichi-repair/?$ works-yokkaichi-repair.html \[L\]$' .htaccess
+          grep -Fq 'RewriteRule ^works/handa-amos-rexx/?$ works-handa-amos-rexx.html [L]' .htaccess
+          grep -Fq 'RewriteRule ^works/anjo-repair/?$ works-anjo-repair.html [L]' .htaccess
+          grep -Fq 'RewriteRule ^works/yokkaichi-repair/?$ works-yokkaichi-repair.html [L]' .htaccess
 
           python3 - <<'PY'
           from pathlib import Path
