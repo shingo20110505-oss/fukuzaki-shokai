@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
 
       - name: Update favicon references only
         run: |
@@ -30,7 +31,7 @@ jobs:
           from pathlib import Path
           import re
           pages = ['index.html','sales.html','repair.html','models.html','works.html','company.html','faq.html','contact.html','privacy.html','404.html']
-          block = '<link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32-20260823.png">\n<link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16-20260823.png">\n<link rel="shortcut icon" href="/favicon-20260823.ico">\n'
+          block = '<link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32-20260823.png">\n<link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16-20260823.png">\n'
           for name in pages:
               p = Path(name)
               s = p.read_text(encoding='utf-8')
@@ -47,11 +48,9 @@ jobs:
           for f in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
             grep -Fq '/images/favicon-32-20260823.png' "$f"
             grep -Fq '/images/favicon-16-20260823.png' "$f"
-            grep -Fq '/favicon-20260823.ico' "$f"
           done
           echo '8d5ca7f45c5425c5beb5e02ede398bb39a68a944478c75519d540bd59c9055a8  images/favicon-16-20260823.png' | sha256sum -c -
           echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  images/favicon-32-20260823.png' | sha256sum -c -
-          echo '24afddbd7a5da6bb345e95125b10e0d8bd761ea8450a51b02a783284415f9cbc  favicon-20260823.ico' | sha256sum -c -
 
       - name: Commit permanent source change
         run: |
@@ -60,8 +59,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html
           if ! git diff --cached --quiet; then
-            git commit -m 'Fix browser tab favicon permanently'
-            git push origin HEAD:main
+            git commit -m 'Use dedicated 16px and 32px browser favicons'
+            git push origin HEAD:main || echo 'Source push skipped; deployment will still continue'
           fi
 
       - name: Configure SSH
@@ -92,7 +91,6 @@ jobs:
           for target in "$ROOT" "$TEST"; do
             rsync -az -e "$SSH" $pages "$REMOTE:$target/"
             rsync -az -e "$SSH" images/favicon-16-20260823.png images/favicon-32-20260823.png "$REMOTE:$target/images/"
-            rsync -az -e "$SSH" favicon-20260823.ico "$REMOTE:$target/"
           done
 
       - name: Verify public favicon
@@ -100,14 +98,13 @@ jobs:
           set -eu
           BASE='https://ayuto.xsrv.jp'
           N="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/index.html?verify=$N" -o /tmp/index.html
-          grep -Fq '/images/favicon-32-20260823.png' /tmp/index.html
-          grep -Fq '/images/favicon-16-20260823.png' /tmp/index.html
-          grep -Fq '/favicon-20260823.ico' /tmp/index.html
+          for page in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html; do
+            curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$BASE/$page?verify=$N" -o "/tmp/$page"
+            grep -Fq '/images/favicon-32-20260823.png' "/tmp/$page"
+            grep -Fq '/images/favicon-16-20260823.png' "/tmp/$page"
+          done
           curl -fsSL "$BASE/images/favicon-16-20260823.png?verify=$N" -o /tmp/f16.png
           curl -fsSL "$BASE/images/favicon-32-20260823.png?verify=$N" -o /tmp/f32.png
-          curl -fsSL "$BASE/favicon-20260823.ico?verify=$N" -o /tmp/favicon.ico
           echo '8d5ca7f45c5425c5beb5e02ede398bb39a68a944478c75519d540bd59c9055a8  /tmp/f16.png' | sha256sum -c -
           echo '2971ee18ba11b9f7676876bc152b93d944c51e4e51ffcc7ca18d93d66635bb57  /tmp/f32.png' | sha256sum -c -
-          echo '24afddbd7a5da6bb345e95125b10e0d8bd761ea8450a51b02a783284415f9cbc  /tmp/favicon.ico' | sha256sum -c -
-          echo 'PUBLIC FAVICON 20260823 VERIFIED'
+          echo 'PUBLIC PNG FAVICON 20260823 VERIFIED'
