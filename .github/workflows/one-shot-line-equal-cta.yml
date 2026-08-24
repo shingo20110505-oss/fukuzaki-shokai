@@ -1,0 +1,146 @@
+name: One-shot strengthen LINE CTA
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-line-equal-cta.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  strengthen-line:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Make LINE as prominent as phone
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          marker = 'line-equal-cta-v2'
+          if marker in s:
+              print('LINE equal CTA already applied')
+              raise SystemExit(0)
+
+          def replace_once(old, new, label):
+              global s
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, got {count}')
+              s = s.replace(old, new, 1)
+
+          style_anchor = '<link rel="stylesheet" href="style.css?v=20260814d">'
+          style_block = '''<link rel="stylesheet" href="style.css?v=20260814d">
+<style id="line-equal-cta-v2">
+/* Homepage consultation choices: phone and LINE have equal visual priority. */
+.home .header-actions{gap:9px}
+.home .header-line-button{background:#06c755;box-shadow:0 8px 22px rgba(6,199,85,.22)}
+.home .header-line-button:hover{background:#05ad49;box-shadow:0 11px 26px rgba(6,199,85,.28)}
+.home .hero-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+.home .hero-phone-block{width:100%}
+.home .hero-line-cta{background:#06c755;border-color:rgba(0,120,47,.18);box-shadow:0 12px 30px rgba(6,199,85,.20)}
+.home .hero-line-cta:hover{background:#05ad49;box-shadow:0 16px 34px rgba(6,199,85,.28)}
+.home .hero-line-note{color:#497363}
+.home .mobile-menu .mobile-line-call{margin-top:12px;background:#06c755;box-shadow:0 12px 28px rgba(6,199,85,.20)}
+.home .contact-band-actions.contact-band-actions--three{grid-template-columns:repeat(3,1fr);max-width:1120px}
+.home .contact-line-display{background:rgba(6,199,85,.10)}
+.home .contact-line-display small{color:#7ce5a3}
+.home .contact-line-display strong{font-size:clamp(22px,2.5vw,34px)}
+.home .contact-line-display span{display:block;margin-top:5px;font-size:12px;font-weight:800;color:rgba(255,255,255,.72)}
+@media(max-width:1180px){.home .header-line-button{display:none}}
+@media(max-width:760px){
+  .home .header-call-button,.home .header-line-button{display:none!important}
+  .home .hero-actions{grid-template-columns:1fr}
+  .home .hero-phone-block{width:100%}
+  .home .contact-band-actions.contact-band-actions--three{grid-template-columns:1fr}
+}
+</style>'''
+          replace_once(style_anchor, style_block, 'scoped CTA styles')
+
+          header_phone = '''      <a class="header-call-button" href="tel:0566427743" aria-label="フクザキ商会へ電話する">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2c.3-.3.7-.4 1.1-.3 1.2.4 2.5.6 3.8.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.8 21 3 13.2 3 3.7c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.6.6 3.8.1.4 0 .8-.3 1.1z"/></svg>
+        電話で相談
+      </a>'''
+          header_both = header_phone + '''
+      <a class="header-call-button header-line-button" href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener" aria-label="フクザキ商会のLINE公式アカウントで相談する">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 4h16v12H9l-5 4v-4H4z"/></svg>
+        LINE相談
+      </a>'''
+          replace_once(header_phone, header_both, 'desktop header LINE button')
+
+          mobile_phone = '''    <a class="mobile-call" href="tel:0566427743">
+      <small>電話受付 7:00〜23:30・年中無休</small>
+      <strong>0566-42-7743</strong>
+      <span>タップして電話する</span>
+    </a>'''
+          mobile_both = mobile_phone + '''
+    <a class="mobile-call mobile-line-call" href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener" aria-label="LINEで写真を送って相談する">
+      <small>写真を見せながら相談できます</small>
+      <strong>LINEで写真相談</strong>
+      <span>機種名・症状・地域・写真を送信</span>
+    </a>'''
+          replace_once(mobile_phone, mobile_both, 'mobile LINE callout')
+
+          old_line = '''          <a class="button button-secondary hero-sub-cta" href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener">LINEで写真相談 <span aria-hidden="true">→</span></a>'''
+          new_line = '''          <div class="hero-phone-block">
+            <a class="hero-phone-cta hero-line-cta" href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener" aria-label="LINEで写真を送って相談する">
+              <span class="hero-phone-cta__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h16v12H9l-5 4v-4H4z"/></svg>
+              </span>
+              <span class="hero-phone-cta__content"><small>LINEで写真相談</small><strong>写真で相談する</strong></span>
+              <span class="hero-phone-cta__arrow" aria-hidden="true">→</span>
+            </a>
+            <span class="hero-phone-hours hero-line-note">機種名・症状・地域・写真を送信</span>
+          </div>'''
+          replace_once(old_line, new_line, 'hero equal LINE CTA')
+
+          contact_open = '    <div class="contact-band-actions">'
+          replace_once(contact_open, '    <div class="contact-band-actions contact-band-actions--three">', 'contact grid class')
+
+          mobile_contact = '''      <a class="phone-display" href="tel:09083374663"><small>携帯電話・福崎</small><strong>090-8337-4663</strong><span>タップして電話をかける</span></a>'''
+          contact_with_line = mobile_contact + '''
+      <a class="phone-display contact-line-display" href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener"><small>LINE公式アカウント</small><strong>LINEで写真相談</strong><span>機種名・症状・地域・写真を送る</span></a>'''
+          replace_once(mobile_contact, contact_with_line, 'contact LINE card')
+
+          old_meta = '''    <p class="contact-meta">営業時間 9:00～18:00 ／ 電話受付 7:00～23:30 ／ 年中無休　｜　<a href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener">LINEで写真相談</a></p>'''
+          new_meta = '''    <p class="contact-meta">営業時間 9:00～18:00 ／ 電話受付 7:00～23:30 ／ 年中無休</p>'''
+          replace_once(old_meta, new_meta, 'contact meta cleanup')
+
+          p.write_text(s, encoding='utf-8')
+          print('LINE EQUAL CTA PATCH COMPLETE')
+          PY
+
+          grep -Fq 'id="line-equal-cta-v2"' index.html
+          grep -Fq 'header-line-button' index.html
+          grep -Fq 'mobile-line-call' index.html
+          grep -Fq 'hero-line-cta' index.html
+          grep -Fq 'contact-line-display' index.html
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' index.html
+          grep -Fq 'tel:0566427743' index.html
+          test "$(grep -Fc 'LINEで写真相談' index.html)" -ge 4
+          git diff --check
+
+      - name: Commit strengthened homepage
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- index.html; then
+            echo 'No homepage change needed'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'LINE相談を電話と同格の導線に強化'
+          git push origin HEAD:main
