@@ -1,0 +1,272 @@
+name: Fix clean URL assets and deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/fix-clean-url-assets-20260825.yml'
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: fukuzaki-clean-url-assets-20260825
+  cancel-in-progress: false
+
+jobs:
+  fix-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fix root-relative assets and clean internal links
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          files = [
+              'index.html',
+              'sales.html',
+              'repair.html',
+              'models.html',
+              'works.html',
+              'company.html',
+              'faq.html',
+              'contact.html',
+              'privacy.html',
+              '404.html',
+              'works-handa-amos-rexx.html',
+              'works-anjo-repair.html',
+              'works-yokkaichi-repair.html',
+          ]
+
+          route_map = {
+              'index.html': '/',
+              'sales.html': '/sales/',
+              'repair.html': '/repair/',
+              'models.html': '/models/',
+              'works.html': '/works/',
+              'company.html': '/company/',
+              'faq.html': '/faq/',
+              'contact.html': '/contact/',
+              'privacy.html': '/privacy/',
+              '404.html': '/404/',
+              'works-handa-amos-rexx.html': '/works/handa-amos-rexx/',
+              'works-anjo-repair.html': '/works/anjo-repair/',
+              'works-yokkaichi-repair.html': '/works/yokkaichi-repair/',
+          }
+
+          for name in files:
+              p = Path(name)
+              if not p.exists():
+                  raise SystemExit(f'missing required html: {name}')
+              s = p.read_text(encoding='utf-8')
+
+              # Critical frontend files must resolve from every clean URL such as /sales/ and /works/.../.
+              s = re.sub(r'href=["\'](?:\./)?style\.css(?:\?[^"\']*)?["\']',
+                         'href="/style.css?v=20260825a"', s)
+              s = re.sub(r'src=["\'](?:\./)?js/main\.js(?:\?[^"\']*)?["\']',
+                         'src="/js/main.js?v=20260825a"', s)
+
+              # Other local assets also need root-relative paths on rewritten clean URLs.
+              s = re.sub(r'(src|href)=["\'](?:\./)?images/', r'\1="/images/', s)
+              s = re.sub(r'(src|href)=["\'](?:\./)?css/', r'\1="/css/', s)
+              s = re.sub(r'(src|href)=["\'](?:\./)?js/(?!main\.js)', r'\1="/js/', s)
+
+              # Keep internal navigation aligned with canonical clean URLs.
+              for old, new in route_map.items():
+                  pattern = rf'href=["\'](?:\./)?{re.escape(old)}(?P<suffix>[?#][^"\']*)?["\']'
+                  def repl(m, new=new):
+                      return f'href="{new}{m.group("suffix") or ""}"'
+                  s = re.sub(pattern, repl, s)
+
+              p.write_text(s, encoding='utf-8')
+
+          # Hard validation: no clean-url page may depend on document-relative critical assets.
+          bad_patterns = [
+              r'href=["\'](?:\./)?style\.css',
+              r'src=["\'](?:\./)?js/main\.js',
+              r'(?:src|href)=["\'](?:\./)?images/',
+          ]
+          for name in files:
+              s = Path(name).read_text(encoding='utf-8')
+              if '/style.css?v=20260825a' not in s:
+                  raise SystemExit(f'root stylesheet missing: {name}')
+              if '/js/main.js?v=20260825a' not in s:
+                  raise SystemExit(f'root main.js missing: {name}')
+              for pat in bad_patterns:
+                  if re.search(pat, s):
+                      raise SystemExit(f'relative asset remains in {name}: {pat}')
+
+          print(f'Patched and validated {len(files)} HTML files')
+          PY
+
+          node --check js/main.js
+          test -s style.css
+          test -s style-base-20260824.css
+          test -s .htaccess
+
+      - name: Commit source fix
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html works-handa-amos-rexx.html works-anjo-repair.html works-yokkaichi-repair.html
+          if git diff --cached --quiet; then
+            echo 'No source changes were needed'
+          else
+            git commit -m 'クリーンURLでもCSS・JS・画像をルートから読み込む'
+            git push origin main
+          fi
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build immutable deploy archive
+        run: |
+          set -euo pipefail
+          cat > /tmp/files.txt <<'FILES'
+          index.html
+          sales.html
+          repair.html
+          models.html
+          works.html
+          company.html
+          faq.html
+          contact.html
+          privacy.html
+          404.html
+          works-handa-amos-rexx.html
+          works-anjo-repair.html
+          works-yokkaichi-repair.html
+          style.css
+          style-base-20260824.css
+          js/main.js
+          .htaccess
+          FILES
+          while IFS= read -r f; do test -s "$f" || { echo "missing: $f"; exit 1; }; done < /tmp/files.txt
+          while IFS= read -r f; do sha256sum "$f"; done < /tmp/files.txt > /tmp/source.sha256
+          tar -czf /tmp/site-clean-url-fix.tar.gz -T /tmp/files.txt
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Backup, deploy to git-test, and verify hashes
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/clean-url-assets-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "BACKUP_DIR=$BACKUP" >> "$GITHUB_ENV"
+          $SSH "$REMOTE" "mkdir -p '$BACKUP/production' '$BACKUP/git-test' '$TEST'"
+          $SCP /tmp/files.txt /tmp/source.sha256 /tmp/site-clean-url-fix.tar.gz "$REMOTE:$BACKUP/"
+          $SSH "$REMOTE" "ROOT='$ROOT' TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          while IFS= read -r f; do
+            if [ -f "$ROOT/$f" ]; then mkdir -p "$BACKUP/production/$(dirname "$f")"; cp -p "$ROOT/$f" "$BACKUP/production/$f"; fi
+            if [ -f "$TEST/$f" ]; then mkdir -p "$BACKUP/git-test/$(dirname "$f")"; cp -p "$TEST/$f" "$BACKUP/git-test/$f"; fi
+          done < "$BACKUP/files.txt"
+          tar -xzf "$BACKUP/site-clean-url-fix.tar.gz" -C "$TEST"
+          cd "$TEST"
+          sha256sum -c "$BACKUP/source.sha256"
+          grep -Fq '/style.css?v=20260825a' sales.html
+          grep -Fq '/js/main.js?v=20260825a' sales.html
+          grep -Fq '/style.css?v=20260825a' works-handa-amos-rexx.html
+          grep -Fq '/js/main.js?v=20260825a' works-handa-amos-rexx.html
+          echo 'GIT-TEST FILE VERIFY SUCCESS'
+          REMOTE
+
+      - name: Verify public git-test critical assets
+        run: |
+          set -euo pipefail
+          BASE='https://ayuto.xsrv.jp/git-test'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/sales.html?verify=$NONCE" -o /tmp/test-sales
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/works-handa-amos-rexx.html?verify=$NONCE" -o /tmp/test-detail
+          grep -Fq '/style.css?v=20260825a' /tmp/test-sales
+          grep -Fq '/js/main.js?v=20260825a' /tmp/test-sales
+          grep -Fq '/style.css?v=20260825a' /tmp/test-detail
+          grep -Fq '/js/main.js?v=20260825a' /tmp/test-detail
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/style.css?verify=$NONCE" -o /tmp/test-style
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/js/main.js?verify=$NONCE" -o /tmp/test-js
+          test -s /tmp/test-style
+          node --check /tmp/test-js
+          echo 'GIT-TEST PUBLIC ASSET REFERENCES VERIFIED'
+
+      - name: Deploy same archive to production and verify
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          tar -xzf "$BACKUP/site-clean-url-fix.tar.gz" -C "$ROOT"
+          cd "$ROOT"
+          sha256sum -c "$BACKUP/source.sha256"
+          grep -Fq '/style.css?v=20260825a' sales.html
+          grep -Fq '/js/main.js?v=20260825a' sales.html
+          grep -Fq '/style.css?v=20260825a' repair.html
+          grep -Fq '/style.css?v=20260825a' works-handa-amos-rexx.html
+          echo 'PRODUCTION FILE SHA VERIFY SUCCESS'
+          REMOTE
+
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for route in '' sales repair models works company faq contact privacy works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            if [ -z "$route" ]; then url="$BASE/?verify=$NONCE"; else url="$BASE/$route/?verify=$NONCE"; fi
+            code="$(curl -sS -L --retry 3 -o /tmp/page -w '%{http_code}' -H 'Cache-Control: no-cache' "$url")"
+            test "$code" = 200 || { echo "route failed: $route = $code"; exit 1; }
+            grep -Fq '/style.css?v=20260825a' /tmp/page
+            grep -Fq '/js/main.js?v=20260825a' /tmp/page
+          done
+
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/style.css?verify=$NONCE" -o /tmp/prod-style
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" -o /tmp/prod-js
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/images/brand-icon.png?verify=$NONCE" -o /tmp/prod-brand
+          test -s /tmp/prod-style
+          test -s /tmp/prod-brand
+          node --check /tmp/prod-js
+
+          # Confirm the exact failure mode is gone on clean URLs: document-relative paths are no longer emitted.
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/sales/?verify=$NONCE" -o /tmp/prod-sales
+          ! grep -Eq 'href=["\']style\.css|src=["\']js/main\.js|src=["\']images/' /tmp/prod-sales
+          grep -Fq 'href="/style.css?v=20260825a"' /tmp/prod-sales
+          grep -Fq 'src="/js/main.js?v=20260825a"' /tmp/prod-sales
+          echo 'PRODUCTION CLEAN URL CSS JS ASSET VERIFY SUCCESS'
+
+      - name: Record successful production status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${SOURCE_COMMIT}" \
+            -d '{"state":"success","context":"deploy/clean-url-assets-production","description":"Clean URL CSS/JS/assets verified on XServer"}' >/dev/null
+          printf 'source_commit=%s\nbackup=%s\nclean_url_assets=success\n' "$SOURCE_COMMIT" "$BACKUP_DIR" > CLEAN_URL_ASSET_DEPLOY_STATUS.txt
+          git pull --rebase origin main
+          git add CLEAN_URL_ASSET_DEPLOY_STATUS.txt
+          git commit -m 'クリーンURLのCSS・JS本番検証成功を記録' || true
+          git push origin main
