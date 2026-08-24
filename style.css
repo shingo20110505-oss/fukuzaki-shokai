@@ -324,3 +324,36 @@ html body .floating-line span{
     line-height:1.1!important;
   }
 }
+
+/* mobile-menu-scroll-slide: 2026-08-24j */
+@keyframes mobileMenuSlideIn{
+  from{transform:translateX(26px);opacity:0}
+  to{transform:translateX(0);opacity:1}
+}
+@media (max-width:760px){
+  html body .mobile-menu:not([hidden]){
+    grid-template-rows:minmax(0,1fr) auto!important;
+    overflow:hidden!important;
+    animation:mobileMenuSlideIn .24s cubic-bezier(.2,.8,.2,1) both!important;
+  }
+  html body .mobile-menu nav{
+    min-height:0!important;
+    max-height:100%!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    overscroll-behavior:contain!important;
+    touch-action:pan-y!important;
+    scrollbar-width:thin!important;
+    padding-bottom:14px!important;
+  }
+  html body .mobile-menu nav ul{
+    min-height:max-content!important;
+  }
+  html body .mobile-menu > .mobile-call{
+    align-self:stretch!important;
+  }
+}
+@media (prefers-reduced-motion:reduce){
+  html body .mobile-menu:not([hidden]){animation:none!important}
+}
