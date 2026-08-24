@@ -1,0 +1,131 @@
+name: One-shot mobile polish
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-mobile-polish.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  polish-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Polish smartphone header, menu and contact actions
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('js/main.js')
+          s = p.read_text(encoding='utf-8')
+          marker = '  const setLoaded = () => root.classList.add(\'is-loaded\');'
+          release = 'mobile-polish-v1'
+
+          if release in s:
+              print('Mobile polish already applied')
+              raise SystemExit(0)
+          if marker not in s:
+              raise SystemExit('setLoaded marker not found')
+
+          block = r'''  // mobile-polish-v1: keep phone and LINE equally easy to reach on smartphones.
+  if (!document.querySelector('[data-mobile-polish-style]')) {
+    const mobilePolishStyle = document.createElement('style');
+    mobilePolishStyle.setAttribute('data-mobile-polish-style', '');
+    mobilePolishStyle.textContent = `
+      @media(max-width:760px){
+        .site-header .header-shell{height:70px!important;width:calc(100% - 20px)!important;gap:8px!important}
+        .site-header .brand{gap:10px!important;min-width:0!important}
+        .site-header .brand-mark{width:38px!important;height:38px!important;border-radius:10px!important}
+        .site-header .brand-copy{min-width:0!important}
+        .site-header .brand-copy strong{font-size:16px!important;white-space:nowrap!important}
+        .site-header .brand-copy small{font-size:8.5px!important;white-space:nowrap!important}
+        .site-header .header-actions{gap:7px!important;flex:0 0 auto!important}
+        .site-header .header-phone,.site-header .header-call-button:not(.header-line-button){display:none!important}
+        .site-header .header-line-button{display:inline-flex!important;width:44px!important;height:44px!important;min-height:44px!important;padding:0!important;border-radius:12px!important;box-shadow:none!important;flex:0 0 44px!important}
+        .site-header .header-line-button span{display:none!important}
+        .site-header .header-line-button img{width:25px!important;height:25px!important}
+        .site-header .menu-button{display:block!important;width:44px!important;height:44px!important;border-radius:12px!important;flex:0 0 44px!important}
+        .site-header .menu-button span:nth-of-type(2){top:16px!important;left:11px!important}
+        .site-header .menu-button span:nth-of-type(3){top:25px!important;left:11px!important}
+        .site-header .menu-button[aria-expanded="true"] span:nth-of-type(2),.site-header .menu-button[aria-expanded="true"] span:nth-of-type(3){top:21px!important}
+
+        .mobile-menu{top:70px!important;height:calc(100dvh - 70px)!important;padding:14px 14px calc(26px + env(safe-area-inset-bottom))!important;background:#f6fafb!important;color:var(--ink)!important}
+        .mobile-menu nav{overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:16px;padding:3px 14px;box-shadow:0 10px 30px rgba(13,41,64,.07)}
+        .mobile-menu li{border-bottom:1px solid #e4edf1!important}
+        .mobile-menu li:last-child{border-bottom:0!important}
+        .mobile-menu nav a{min-height:49px!important;font-size:15px!important;font-weight:800!important;letter-spacing:.01em}
+        .mobile-menu nav a::after{font-size:14px!important;color:var(--teal)!important}
+        .mobile-menu .mobile-quick-grid{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:10px!important;margin-top:12px!important}
+        .mobile-menu .mobile-quick-grid .mobile-call{display:grid!important;align-content:center!important;justify-content:center!important;min-width:0!important;min-height:106px!important;margin:0!important;padding:12px 8px!important;border-radius:14px!important;box-shadow:0 8px 22px rgba(13,41,64,.10)!important;text-align:center!important}
+        .mobile-menu .mobile-quick-grid .mobile-call:first-child{background:var(--teal)!important;color:#fff!important}
+        .mobile-menu .mobile-quick-grid .mobile-line-call{background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important}
+        .mobile-menu .mobile-quick-grid .mobile-call small{font-size:9.5px!important;line-height:1.4!important;font-weight:800!important;white-space:normal!important}
+        .mobile-menu .mobile-quick-grid .mobile-call strong{margin-top:5px!important;font-size:15.5px!important;line-height:1.25!important;white-space:nowrap!important;letter-spacing:0!important}
+        .mobile-menu .mobile-quick-grid .mobile-call span{margin-top:5px!important;font-size:10px!important;line-height:1.35!important;font-weight:800!important;white-space:normal!important}
+        .mobile-menu .mobile-line-call .line-menu-title{display:flex!important;align-items:center!important;justify-content:center!important;gap:6px!important}
+        .mobile-menu .mobile-line-call img{width:23px!important;height:23px!important;flex:0 0 23px!important}
+
+        .floating-call,.floating-line{min-height:56px!important;border-radius:13px!important;padding:10px 8px!important}
+        .floating-call span,.floating-line span{font-size:14px!important;font-weight:850!important;line-height:1.2!important}
+        .floating-line{gap:6px!important}
+        .floating-line img{width:21px!important;height:21px!important;flex:0 0 21px!important}
+      }
+      @media(max-width:370px){
+        .site-header .brand-copy small{display:none!important}
+        .mobile-menu{padding-left:11px!important;padding-right:11px!important}
+        .mobile-menu nav{padding-left:11px!important;padding-right:11px!important}
+        .mobile-menu .mobile-quick-grid{gap:8px!important}
+        .mobile-menu .mobile-quick-grid .mobile-call strong{font-size:14px!important}
+        .mobile-menu .mobile-quick-grid .mobile-call small{font-size:9px!important}
+        .floating-call span,.floating-line span{font-size:13px!important}
+      }
+    `;
+    document.head.appendChild(mobilePolishStyle);
+  }
+
+  const mobilePhoneCall = mobileMenu?.querySelector('.mobile-call:not(.mobile-line-call)');
+  const mobileLineQuickCall = mobileMenu?.querySelector('.mobile-line-call');
+  if (mobilePhoneCall && mobileLineQuickCall && !mobileMenu.querySelector('.mobile-quick-grid')) {
+    const quickGrid = document.createElement('div');
+    quickGrid.className = 'mobile-quick-grid';
+    mobilePhoneCall.insertAdjacentElement('beforebegin', quickGrid);
+    quickGrid.append(mobilePhoneCall, mobileLineQuickCall);
+  }
+
+'''
+          s = s.replace(marker, block + marker, 1)
+          if release not in s or 'mobile-quick-grid' not in s or 'data-mobile-polish-style' not in s:
+              raise SystemExit('mobile polish insertion failed')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          node --check js/main.js
+          grep -Fq 'mobile-polish-v1' js/main.js
+          grep -Fq 'mobile-quick-grid' js/main.js
+          grep -Fq 'data-mobile-polish-style' js/main.js
+          grep -Fq '#06C755' js/main.js
+          grep -Fq 'lineIconSrc' js/main.js
+
+      - name: Commit mobile polish
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/main.js
+          if git diff --cached --quiet; then
+            echo 'No changes needed'
+            exit 0
+          fi
+          git commit -m 'スマホ版のヘッダー・メニュー・電話LINE導線を整える'
+          git push origin main
