@@ -1,4 +1,4 @@
-name: One-shot mobile LINE header cleanup
+name: One-shot mobile LINE icon rebalance
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  cleanup-mobile-line-header:
+  rebalance-mobile-line-icons:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -21,7 +21,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Remove mobile header LINE outer frame and center fixed icon
+      - name: Enlarge the two visible smartphone LINE icons
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -29,31 +29,47 @@ jobs:
 
           p = Path('style.css')
           s = p.read_text(encoding='utf-8')
-          marker = '/* mobile-line-header-cleanup: 2026-08-24h */'
+          marker = '/* mobile-line-icon-rebalance: 2026-08-24i */'
           if marker not in s:
               s += r'''
 
-/* mobile-line-header-cleanup: 2026-08-24h */
+/* mobile-line-icon-rebalance: 2026-08-24i */
 @media (max-width:760px){
-  /* Keep a 44px tap target but remove the visible outer frame around the LINE icon. */
+  /* Header: keep the frameless 44px tap target, but let the LINE mark visually fill it. */
   html body .site-header .header-line-button,
   html body.home .site-header .header-line-button{
+    width:44px!important;
+    height:44px!important;
+    min-height:44px!important;
+    flex:0 0 44px!important;
+    padding:0!important;
     background:transparent!important;
     border:0!important;
     box-shadow:none!important;
   }
+  html body .site-header .header-line-button img,
+  html body.home .site-header .header-line-button img{
+    width:40px!important;
+    height:40px!important;
+    max-width:none!important;
+    flex:0 0 40px!important;
+    display:block!important;
+    margin:0!important;
+    object-fit:contain!important;
+  }
 
-  /* Center the bottom LINE icon and label as one unit. */
+  /* Bottom fixed CTA: icon and text should read as one balanced unit. */
   html body .floating-line{
     display:flex!important;
     align-items:center!important;
     justify-content:center!important;
-    gap:8px!important;
+    gap:10px!important;
   }
   html body .floating-line .line-brand-icon{
-    width:27px!important;
-    height:27px!important;
-    flex:0 0 27px!important;
+    width:36px!important;
+    height:36px!important;
+    max-width:none!important;
+    flex:0 0 36px!important;
     display:block!important;
     margin:0!important;
     object-fit:contain!important;
@@ -61,16 +77,17 @@ jobs:
   }
   html body .floating-line span{
     display:block!important;
-    line-height:1!important;
+    margin:0!important;
+    line-height:1.1!important;
   }
 }
 '''
               p.write_text(s, encoding='utf-8')
           PY
 
-          grep -Fq 'mobile-line-header-cleanup: 2026-08-24h' style.css
-          grep -Fq 'background:transparent!important' style.css
-          grep -Fq 'gap:8px!important' style.css
+          grep -Fq 'mobile-line-icon-rebalance: 2026-08-24i' style.css
+          grep -Fq 'width:40px!important' style.css
+          grep -Fq 'width:36px!important' style.css
 
       - name: Commit CSS change
         run: |
@@ -82,5 +99,5 @@ jobs:
             exit 0
           fi
           git add style.css
-          git commit -m 'スマホヘッダーLINEの外枠を外してアイコン位置を整える'
+          git commit -m 'スマホLINEアイコン2箇所を自然な大きさへ拡大'
           git push origin main
