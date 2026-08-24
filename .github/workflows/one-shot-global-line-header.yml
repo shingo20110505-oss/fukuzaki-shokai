@@ -1,4 +1,4 @@
-name: One-shot global LINE header
+name: One-shot global LINE and mobile polish
 
 on:
   push:
@@ -11,15 +11,17 @@ permissions:
   contents: write
 
 jobs:
-  apply-global-line-header:
+  polish-mobile:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
-      - name: Add LINE header and mobile menu to every page
+      - name: Polish smartphone header, menu and contact actions
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -27,72 +29,95 @@ jobs:
 
           p = Path('js/main.js')
           s = p.read_text(encoding='utf-8')
-          marker = "  if (body.classList.contains('home')) {"
+          marker = "  const setLoaded = () => root.classList.add('is-loaded');"
+          release = 'mobile-polish-v1'
+
+          if release in s:
+              print('Mobile polish already applied')
+              raise SystemExit(0)
           if marker not in s:
-              raise SystemExit('home marker not found')
+              raise SystemExit('setLoaded marker not found')
 
-          if 'data-line-global-header-style' not in s:
-              block = r'''  if (!document.querySelector('[data-line-global-header-style]')) {
-    const globalLineStyle = document.createElement('style');
-    globalLineStyle.setAttribute('data-line-global-header-style', '');
-    globalLineStyle.textContent = `
-      .header-actions{gap:9px}
-      .header-line-button{background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important;box-shadow:0 7px 18px rgba(6,199,85,.16)!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:7px!important}
-      .header-line-button img{width:20px;height:20px;display:block;object-fit:contain}
-      .header-line-button:hover{background:#06C755!important;color:#072d1b!important;box-shadow:0 9px 22px rgba(6,199,85,.22)!important}
-      .mobile-menu .mobile-line-call{margin-top:12px;background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important;box-shadow:0 9px 22px rgba(6,199,85,.16)!important}
-      .mobile-menu .mobile-line-call small,.mobile-menu .mobile-line-call strong,.mobile-menu .mobile-line-call span{color:#072d1b!important;opacity:1!important}
-      .mobile-menu .mobile-line-call .line-menu-title{display:flex;align-items:center;justify-content:center;gap:8px}
-      .mobile-menu .mobile-line-call img{width:28px;height:28px;display:block;object-fit:contain}
-      @media(max-width:1180px){.header-line-button{display:none!important}}
-      @media(max-width:760px){.header-call-button,.header-line-button{display:none!important}}
+          block = r'''  // mobile-polish-v1: keep phone and LINE equally easy to reach on smartphones.
+  if (!document.querySelector('[data-mobile-polish-style]')) {
+    const mobilePolishStyle = document.createElement('style');
+    mobilePolishStyle.setAttribute('data-mobile-polish-style', '');
+    mobilePolishStyle.textContent = `
+      @media(max-width:760px){
+        .site-header .header-shell{height:70px!important;width:calc(100% - 20px)!important;gap:8px!important}
+        .site-header .brand{gap:10px!important;min-width:0!important}
+        .site-header .brand-mark{width:38px!important;height:38px!important;border-radius:10px!important}
+        .site-header .brand-copy{min-width:0!important}
+        .site-header .brand-copy strong{font-size:16px!important;white-space:nowrap!important}
+        .site-header .brand-copy small{font-size:8.5px!important;white-space:nowrap!important}
+        .site-header .header-actions{gap:7px!important;flex:0 0 auto!important}
+        .site-header .header-phone,.site-header .header-call-button:not(.header-line-button){display:none!important}
+        .site-header .header-line-button{display:inline-flex!important;width:44px!important;height:44px!important;min-height:44px!important;padding:0!important;border-radius:12px!important;box-shadow:none!important;flex:0 0 44px!important}
+        .site-header .header-line-button span{display:none!important}
+        .site-header .header-line-button img{width:25px!important;height:25px!important}
+        .site-header .menu-button{display:block!important;width:44px!important;height:44px!important;border-radius:12px!important;flex:0 0 44px!important}
+        .site-header .menu-button span:nth-of-type(2){top:16px!important;left:11px!important}
+        .site-header .menu-button span:nth-of-type(3){top:25px!important;left:11px!important}
+        .site-header .menu-button[aria-expanded="true"] span:nth-of-type(2),.site-header .menu-button[aria-expanded="true"] span:nth-of-type(3){top:21px!important}
+
+        .mobile-menu{top:70px!important;height:calc(100dvh - 70px)!important;padding:14px 14px calc(26px + env(safe-area-inset-bottom))!important;background:#f6fafb!important;color:var(--ink)!important}
+        .mobile-menu nav{overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:16px;padding:3px 14px;box-shadow:0 10px 30px rgba(13,41,64,.07)}
+        .mobile-menu li{border-bottom:1px solid #e4edf1!important}
+        .mobile-menu li:last-child{border-bottom:0!important}
+        .mobile-menu nav a{min-height:49px!important;font-size:15px!important;font-weight:800!important;letter-spacing:.01em}
+        .mobile-menu nav a::after{font-size:14px!important;color:var(--teal)!important}
+        .mobile-menu .mobile-quick-grid{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:10px!important;margin-top:12px!important}
+        .mobile-menu .mobile-quick-grid .mobile-call{display:grid!important;align-content:center!important;justify-content:center!important;min-width:0!important;min-height:106px!important;margin:0!important;padding:12px 8px!important;border-radius:14px!important;box-shadow:0 8px 22px rgba(13,41,64,.10)!important;text-align:center!important}
+        .mobile-menu .mobile-quick-grid .mobile-call:first-child{background:var(--teal)!important;color:#fff!important}
+        .mobile-menu .mobile-quick-grid .mobile-line-call{background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important}
+        .mobile-menu .mobile-quick-grid .mobile-call small{font-size:9.5px!important;line-height:1.4!important;font-weight:800!important;white-space:normal!important}
+        .mobile-menu .mobile-quick-grid .mobile-call strong{margin-top:5px!important;font-size:15.5px!important;line-height:1.25!important;white-space:nowrap!important;letter-spacing:0!important}
+        .mobile-menu .mobile-quick-grid .mobile-call span{margin-top:5px!important;font-size:10px!important;line-height:1.35!important;font-weight:800!important;white-space:normal!important}
+        .mobile-menu .mobile-line-call .line-menu-title{display:flex!important;align-items:center!important;justify-content:center!important;gap:6px!important}
+        .mobile-menu .mobile-line-call img{width:23px!important;height:23px!important;flex:0 0 23px!important}
+
+        .floating-call,.floating-line{min-height:56px!important;border-radius:13px!important;padding:10px 8px!important}
+        .floating-call span,.floating-line span{font-size:14px!important;font-weight:850!important;line-height:1.2!important}
+        .floating-line{gap:6px!important}
+        .floating-line img{width:21px!important;height:21px!important;flex:0 0 21px!important}
+      }
+      @media(max-width:370px){
+        .site-header .brand-copy small{display:none!important}
+        .mobile-menu{padding-left:11px!important;padding-right:11px!important}
+        .mobile-menu nav{padding-left:11px!important;padding-right:11px!important}
+        .mobile-menu .mobile-quick-grid{gap:8px!important}
+        .mobile-menu .mobile-quick-grid .mobile-call strong{font-size:14px!important}
+        .mobile-menu .mobile-quick-grid .mobile-call small{font-size:9px!important}
+        .floating-call span,.floating-line span{font-size:13px!important}
+      }
     `;
-    document.head.appendChild(globalLineStyle);
+    document.head.appendChild(mobilePolishStyle);
   }
 
-  const globalHeaderCallButton = document.querySelector('.header-call-button');
-  if (globalHeaderCallButton && !document.querySelector('.header-line-button')) {
-    const headerLineButton = document.createElement('a');
-    headerLineButton.className = 'header-call-button header-line-button';
-    headerLineButton.href = lineUrl;
-    headerLineButton.target = '_blank';
-    headerLineButton.rel = 'noopener';
-    headerLineButton.setAttribute('aria-label', 'フクザキ商会のLINE公式アカウントで相談する');
-    headerLineButton.innerHTML = `<img src="${lineIconSrc}" alt="" aria-hidden="true"><span>LINE相談</span>`;
-    globalHeaderCallButton.insertAdjacentElement('afterend', headerLineButton);
-  }
-
-  const globalMobileCall = mobileMenu?.querySelector('.mobile-call');
-  if (globalMobileCall && !mobileMenu.querySelector('.mobile-line-call')) {
-    const mobileLineCall = document.createElement('a');
-    mobileLineCall.className = 'mobile-call mobile-line-call';
-    mobileLineCall.href = lineUrl;
-    mobileLineCall.target = '_blank';
-    mobileLineCall.rel = 'noopener';
-    mobileLineCall.setAttribute('aria-label', 'LINEで写真を送って相談する');
-    mobileLineCall.innerHTML = `<small>写真を見せながら相談できます</small><strong class="line-menu-title"><img src="${lineIconSrc}" alt="" aria-hidden="true">LINEで写真相談</strong><span>機種名・症状・地域・写真を送信</span>`;
-    globalMobileCall.insertAdjacentElement('afterend', mobileLineCall);
+  const mobilePhoneCall = mobileMenu?.querySelector('.mobile-call:not(.mobile-line-call)');
+  const mobileLineQuickCall = mobileMenu?.querySelector('.mobile-line-call');
+  if (mobilePhoneCall && mobileLineQuickCall && !mobileMenu.querySelector('.mobile-quick-grid')) {
+    const quickGrid = document.createElement('div');
+    quickGrid.className = 'mobile-quick-grid';
+    mobilePhoneCall.insertAdjacentElement('beforebegin', quickGrid);
+    quickGrid.append(mobilePhoneCall, mobileLineQuickCall);
   }
 
 '''
-              s = s.replace(marker, block + marker, 1)
-
-          s = s.replace('// LINE official-green + supplied icon release: 2026-08-24', '// LINE global-header + supplied icon release: 2026-08-24')
-          if 'data-line-global-header-style' not in s:
-              raise SystemExit('global LINE header insertion failed')
-          if "globalHeaderCallButton" not in s or "globalMobileCall" not in s:
-              raise SystemExit('global LINE controls insertion failed')
+          s = s.replace(marker, block + marker, 1)
+          if release not in s or 'mobile-quick-grid' not in s or 'data-mobile-polish-style' not in s:
+              raise SystemExit('mobile polish insertion failed')
           p.write_text(s, encoding='utf-8')
           PY
 
           node --check js/main.js
-          grep -Fq 'data-line-global-header-style' js/main.js
-          grep -Fq 'globalHeaderCallButton' js/main.js
-          grep -Fq 'globalMobileCall' js/main.js
+          grep -Fq 'mobile-polish-v1' js/main.js
+          grep -Fq 'mobile-quick-grid' js/main.js
+          grep -Fq 'data-mobile-polish-style' js/main.js
           grep -Fq '#06C755' js/main.js
           grep -Fq 'lineIconSrc' js/main.js
 
-      - name: Commit change
+      - name: Commit mobile polish
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
@@ -102,5 +127,5 @@ jobs:
             echo 'No changes needed'
             exit 0
           fi
-          git commit -m '全ページのヘッダーとモバイルメニューにLINE導線を追加'
+          git commit -m 'スマホ版のヘッダー・メニュー・電話LINE導線を整える'
           git push origin main
