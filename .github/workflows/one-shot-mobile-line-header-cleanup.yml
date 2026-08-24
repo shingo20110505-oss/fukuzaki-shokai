@@ -1,0 +1,86 @@
+name: One-shot mobile LINE header cleanup
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-mobile-line-header-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup-mobile-line-header:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Remove mobile header LINE outer frame and center fixed icon
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('style.css')
+          s = p.read_text(encoding='utf-8')
+          marker = '/* mobile-line-header-cleanup: 2026-08-24h */'
+          if marker not in s:
+              s += r'''
+
+/* mobile-line-header-cleanup: 2026-08-24h */
+@media (max-width:760px){
+  /* Keep a 44px tap target but remove the visible outer frame around the LINE icon. */
+  html body .site-header .header-line-button,
+  html body.home .site-header .header-line-button{
+    background:transparent!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+
+  /* Center the bottom LINE icon and label as one unit. */
+  html body .floating-line{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    gap:8px!important;
+  }
+  html body .floating-line .line-brand-icon{
+    width:27px!important;
+    height:27px!important;
+    flex:0 0 27px!important;
+    display:block!important;
+    margin:0!important;
+    object-fit:contain!important;
+    transform:none!important;
+  }
+  html body .floating-line span{
+    display:block!important;
+    line-height:1!important;
+  }
+}
+'''
+              p.write_text(s, encoding='utf-8')
+          PY
+
+          grep -Fq 'mobile-line-header-cleanup: 2026-08-24h' style.css
+          grep -Fq 'background:transparent!important' style.css
+          grep -Fq 'gap:8px!important' style.css
+
+      - name: Commit CSS change
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- style.css; then
+            echo 'No change needed'
+            exit 0
+          fi
+          git add style.css
+          git commit -m 'スマホヘッダーLINEの外枠を外してアイコン位置を整える'
+          git push origin main
