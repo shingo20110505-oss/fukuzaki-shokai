@@ -1,0 +1,63 @@
+name: One-shot enlarge mobile LINE icons
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-enlarge-mobile-line-icons.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  enlarge-mobile-line-icons:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Enlarge smartphone LINE icons
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('style.css')
+          s = p.read_text(encoding='utf-8')
+
+          replacements = {
+              'width:25px!important;\n    height:25px!important;': 'width:32px!important;\n    height:32px!important;',
+              'width:23px!important;\n    height:23px!important;\n    flex:0 0 23px!important;': 'width:30px!important;\n    height:30px!important;\n    flex:0 0 30px!important;',
+              'width:21px!important;\n    height:21px!important;\n    margin-right:5px!important;': 'width:27px!important;\n    height:27px!important;\n    margin-right:6px!important;',
+          }
+
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit(f'Expected CSS block not found: {old!r}')
+              s = s.replace(old, new, 1)
+
+          marker = '/* mobile-line-icon-size: 2026-08-24g */'
+          if marker not in s:
+              s += '\n\n' + marker + '\n'
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          grep -Fq 'width:32px!important' style.css
+          grep -Fq 'width:30px!important' style.css
+          grep -Fq 'width:27px!important' style.css
+          grep -Fq 'mobile-line-icon-size: 2026-08-24g' style.css
+
+      - name: Commit CSS change
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add style.css
+          git commit -m 'スマホのLINEアイコンを見やすく拡大'
+          git push origin main
