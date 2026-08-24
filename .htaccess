@@ -1,13 +1,13 @@
-# Deploy trigger: global LINE header 2026-08-24
+# Deploy trigger: mobile polish 2026-08-24
 SetEnvIf Request_URI ".*" Ngx_Cache_NoCacheMode=off
 SetEnvIf Request_URI ".*" Ngx_Cache_AllCacheMode
 
-# Keep HTML/text responses fresh after deployments while preserving cache for CSS/images.
+# Keep HTML/text and frequently updated frontend entry files fresh after deployments.
 <IfModule mod_headers.c>
   <FilesMatch "\.(html?|xml|txt)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
-  <FilesMatch "^main\.js$">
+  <FilesMatch "^(main\.js|style\.css)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
 </IfModule>
