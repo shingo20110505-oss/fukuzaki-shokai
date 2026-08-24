@@ -1,9 +1,12 @@
 SetEnvIf Request_URI ".*" Ngx_Cache_NoCacheMode=off
 SetEnvIf Request_URI ".*" Ngx_Cache_AllCacheMode
 
-# Keep HTML/text responses fresh after deployments while preserving cache for CSS/JS/images.
+# Keep HTML/text responses fresh after deployments while preserving cache for CSS/images.
 <IfModule mod_headers.c>
   <FilesMatch "\.(html?|xml|txt)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+  <FilesMatch "^main\.js$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
 </IfModule>
