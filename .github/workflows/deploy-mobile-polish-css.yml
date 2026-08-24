@@ -1,4 +1,5 @@
 name: Deploy mobile polish CSS
+# Clean URL compatibility verification trigger: 2026-08-25
 
 on:
   push:
@@ -39,6 +40,8 @@ jobs:
           grep -Fq 'header-line-button' style.css
           grep -Fq 'Theme Name: フクザキ商会 公式サイト v4.2' style-base-20260824.css
           grep -Fq 'style\.css' .htaccess
+          grep -Fq 'Clean URL compatibility rescue' .htaccess
+          grep -Fq '(?:js|images|css|fonts)' .htaccess
           printf '%s\n' style.css style-base-20260824.css .htaccess > /tmp/mobile-files.txt
           while IFS= read -r f; do sha256sum "$f"; done < /tmp/mobile-files.txt > /tmp/mobile-source.sha256
           tar -czf /tmp/mobile-polish.tar.gz -T /tmp/mobile-files.txt
@@ -97,6 +100,7 @@ jobs:
           tar -xzf "$BACKUP/mobile-polish.tar.gz" -C "$TEST"
           cd "$TEST"
           sha256sum -c "$BACKUP/mobile-source.sha256"
+          grep -Fq 'Clean URL compatibility rescue' .htaccess
           REMOTE
           for f in style.css style-base-20260824.css; do
             expected="$(sha256sum "$f" | awk '{print $1}')"
@@ -122,6 +126,7 @@ jobs:
           tar -xzf "$BACKUP/mobile-polish.tar.gz" -C "$ROOT"
           cd "$ROOT"
           sha256sum -c "$BACKUP/mobile-source.sha256"
+          grep -Fq 'Clean URL compatibility rescue' .htaccess
           REMOTE
           for f in style.css style-base-20260824.css; do
             expected="$(sha256sum "$f" | awk '{print $1}')"
@@ -139,8 +144,22 @@ jobs:
             code="$(curl -sS -L --retry 3 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$url?verify=${GITHUB_RUN_ID}")"
             test "$code" = 200
           done
+
+          # Verify the browser-resolved nested asset URLs that previously failed.
+          for asset in sales/style.css sales/style-base-20260824.css sales/js/main.js sales/images/brand-icon.png repair/style.css repair/js/main.js works/handa-amos-rexx/style.css works/handa-amos-rexx/js/main.js works/handa-amos-rexx/images/brand-icon.png; do
+            code="$(curl -sS -L --retry 3 -o /tmp/nested-asset -w '%{http_code}' -H 'Cache-Control: no-cache' "$BASE/$asset?verify=${GITHUB_RUN_ID}")"
+            test "$code" = 200 || { echo "$asset=$code"; exit 1; }
+            test -s /tmp/nested-asset
+          done
+          curl -fsSL --retry 3 "$BASE/sales/js/main.js?verify=${GITHUB_RUN_ID}" -o /tmp/nested-main.js
+          node --check /tmp/nested-main.js
+          curl -fsSL --retry 3 "$BASE/sales/style.css?verify=${GITHUB_RUN_ID}" -o /tmp/nested-style.css
+          grep -Fq 'deploy-mobile-polish: 2026-08-24' /tmp/nested-style.css
+          final="$(curl -sS -L --retry 3 -o /dev/null -w '%{url_effective}' "$BASE/sales/repair.html")"
+          test "$final" = "$BASE/repair/"
+
           curl -fsSI -H 'Cache-Control: no-cache' "$BASE/style.css?verify=${GITHUB_RUN_ID}" | tr -d '\r' | grep -Ei '^cache-control:.*no-cache' >/dev/null
-          echo 'PRODUCTION MOBILE CSS VERIFIED'
+          echo 'PRODUCTION MOBILE CSS AND CLEAN URL ASSET COMPAT VERIFIED'
 
       - name: Record success status
         env:
@@ -151,4 +170,4 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'Accept: application/vnd.github+json' \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -d '{"state":"success","context":"deploy/mobile-polish-production","description":"Mobile CSS verified on XServer production"}' >/dev/null
+            -d '{"state":"success","context":"deploy/mobile-polish-production","description":"Mobile CSS and clean URL assets verified on XServer"}' >/dev/null
