@@ -1,4 +1,4 @@
-name: One-shot force mobile deploy
+name: One-shot soft LINE surface deploy
 
 on:
   push:
@@ -11,11 +11,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: fukuzaki-mobile-force-${{ github.run_id }}
+  group: fukuzaki-line-soft-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
-  force-mobile-deploy:
+  deploy-soft-line:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,21 +25,107 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Validate source
+      - name: Apply soft LINE surfaces and cache bust
         run: |
           set -euo pipefail
-          grep -Fq 'style.css?v=20260824e' index.html
-          grep -Fq 'style.css?v=20260824e' sales.html
-          grep -Fq 'style.css?v=20260824e' repair.html
-          grep -Fq 'style.css?v=20260824e' models.html
-          grep -Fq 'style.css?v=20260824e' works.html
-          grep -Fq 'style.css?v=20260824e' company.html
-          grep -Fq 'style.css?v=20260824e' faq.html
-          grep -Fq 'style.css?v=20260824e' contact.html
-          grep -Fq 'style.css?v=20260824e' privacy.html
-          grep -Fq 'deploy-mobile-polish: 2026-08-24' style.css
-          grep -Fq 'header-line-button' style.css
-          grep -Fq 'mobile-menu' style.css
+          python3 - <<'PY'
+          from pathlib import Path
+
+          marker = 'LINE soft-surface release: 2026-08-24f'
+          css = Path('style.css')
+          s = css.read_text(encoding='utf-8')
+          if marker not in s:
+              s += r'''
+
+/* LINE soft-surface release: 2026-08-24f
+   Keep the official #06C755 as the accent, but reduce the filled green area. */
+html body .site-header .header-line-button,
+html body.home .site-header .header-line-button{
+  background:#F4FFF8!important;
+  border-color:#06C755!important;
+  color:#163D2B!important;
+  box-shadow:0 6px 16px rgba(6,199,85,.10)!important;
+}
+html body .site-header .header-line-button:hover,
+html body.home .site-header .header-line-button:hover{
+  background:#E8FFF0!important;
+  border-color:#06C755!important;
+  color:#163D2B!important;
+  box-shadow:0 8px 20px rgba(6,199,85,.13)!important;
+}
+html body.home .hero-line-cta,
+html body.home .contact-line-display,
+html body .mobile-menu > .mobile-line-call,
+html body.home .mobile-menu > .mobile-line-call,
+html body .floating-line{
+  background:#F4FFF8!important;
+  border-color:#06C755!important;
+  color:#163D2B!important;
+  box-shadow:0 8px 20px rgba(6,199,85,.10)!important;
+}
+html body.home .hero-line-cta:hover,
+html body.home .contact-line-display:hover,
+html body .mobile-menu > .mobile-line-call:hover,
+html body.home .mobile-menu > .mobile-line-call:hover,
+html body .floating-line:hover{
+  background:#E8FFF0!important;
+  color:#163D2B!important;
+}
+html body.home .hero-line-cta small,
+html body.home .hero-line-cta strong,
+html body.home .hero-line-cta span,
+html body.home .contact-line-display small,
+html body.home .contact-line-display strong,
+html body.home .contact-line-display span,
+html body .mobile-menu > .mobile-line-call small,
+html body .mobile-menu > .mobile-line-call strong,
+html body .mobile-menu > .mobile-line-call span,
+html body .floating-line span{
+  color:#163D2B!important;
+  opacity:1!important;
+}
+'''
+              css.write_text(s, encoding='utf-8')
+
+          html_files = [
+              'index.html','sales.html','repair.html','models.html','works.html',
+              'company.html','faq.html','contact.html','privacy.html','404.html',
+              'works-handa-amos-rexx.html','works-anjo-repair.html','works-yokkaichi-repair.html'
+          ]
+          for name in html_files:
+              p = Path(name)
+              text = p.read_text(encoding='utf-8')
+              text = text.replace('style.css?v=20260824e', 'style.css?v=20260824f')
+              p.write_text(text, encoding='utf-8')
+          PY
+
+          grep -Fq 'LINE soft-surface release: 2026-08-24f' style.css
+          grep -Fq 'background:#F4FFF8!important' style.css
+          grep -Fq 'border-color:#06C755!important' style.css
+          for f in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html works-handa-amos-rexx.html works-anjo-repair.html works-yokkaichi-repair.html; do
+            grep -Fq 'style.css?v=20260824f' "$f"
+          done
+
+      - name: Commit source update
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add style.css index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html works-handa-amos-rexx.html works-anjo-repair.html works-yokkaichi-repair.html
+          if ! git diff --cached --quiet; then
+            git commit -m 'LINEボタンを淡い背景と公式色アクセントに調整'
+            git push origin main
+          fi
+
+      - name: Validate deploy source
+        run: |
+          set -euo pipefail
+          grep -Fq 'style.css?v=20260824f' index.html
+          grep -Fq 'style.css?v=20260824f' sales.html
+          grep -Fq 'LINE soft-surface release: 2026-08-24f' style.css
+          grep -Fq '#F4FFF8' style.css
+          grep -Fq '#E8FFF0' style.css
+          grep -Fq '#06C755' style.css
           test -s style-base-20260824.css
           node --check js/main.js
 
@@ -88,7 +174,7 @@ jobs:
           REMOTE="ayuto@sv16618.xserver.jp"
           ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
           TEST="$ROOT/git-test"
-          BACKUP="/home/ayuto/deploy-backups/mobile-force-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BACKUP="/home/ayuto/deploy-backups/line-soft-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           $SSH "$REMOTE" "mkdir -p '$BACKUP/production' '$BACKUP/git-test' '$TEST'"
           $SCP /tmp/files.txt /tmp/source.sha256 /tmp/site.tar.gz "$REMOTE:$BACKUP/"
           $SSH "$REMOTE" "ROOT='$ROOT' TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE'
@@ -100,15 +186,14 @@ jobs:
           tar -xzf "$BACKUP/site.tar.gz" -C "$TEST"
           cd "$TEST"
           sha256sum -c "$BACKUP/source.sha256"
+          grep -Fq 'style.css?v=20260824f' "$TEST/index.html"
+          grep -Fq 'LINE soft-surface release: 2026-08-24f' "$TEST/style.css"
           tar -xzf "$BACKUP/site.tar.gz" -C "$ROOT"
           cd "$ROOT"
           sha256sum -c "$BACKUP/source.sha256"
-          grep -Fq 'style.css?v=20260824e' "$ROOT/index.html"
-          grep -Fq 'style.css?v=20260824e' "$ROOT/sales.html"
-          grep -Fq 'deploy-mobile-polish: 2026-08-24' "$ROOT/style.css"
-          test -s "$ROOT/style-base-20260824.css"
-          grep -Fq 'header-line-button' "$ROOT/js/main.js"
-          echo 'XSERVER FILE VERIFY SUCCESS'
+          grep -Fq 'style.css?v=20260824f' "$ROOT/index.html"
+          grep -Fq 'LINE soft-surface release: 2026-08-24f' "$ROOT/style.css"
+          echo 'XSERVER SOFT LINE FILE VERIFY SUCCESS'
           REMOTE
           echo "BACKUP_DIR=$BACKUP" >> "$GITHUB_ENV"
 
@@ -125,21 +210,22 @@ jobs:
           curl -fsSL -H 'Cache-Control: no-cache' "$BASE/?verify=$NONCE" -o /tmp/home
           curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sales/?verify=$NONCE" -o /tmp/sales
           curl -fsSL -H 'Cache-Control: no-cache' "$BASE/style.css?verify=$NONCE" -o /tmp/style
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/style-base-20260824.css?verify=$NONCE" -o /tmp/base
-          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" -o /tmp/js
-          grep -Fq 'style.css?v=20260824e' /tmp/home
-          grep -Fq 'style.css?v=20260824e' /tmp/sales
-          grep -Fq 'deploy-mobile-polish: 2026-08-24' /tmp/style
-          grep -Fq 'Theme Name: フクザキ商会 公式サイト v4.2' /tmp/base
-          grep -Fq 'header-line-button' /tmp/js
-          echo 'PUBLIC MOBILE FIX SUCCESS'
+          grep -Fq 'style.css?v=20260824f' /tmp/home
+          grep -Fq 'style.css?v=20260824f' /tmp/sales
+          grep -Fq 'LINE soft-surface release: 2026-08-24f' /tmp/style
+          grep -Fq 'background:#F4FFF8!important' /tmp/style
+          grep -Fq 'border-color:#06C755!important' /tmp/style
+          echo 'PUBLIC SOFT LINE SUCCESS'
 
       - name: Commit success record
         run: |
           set -euo pipefail
+          git pull --rebase origin main
           cat > MOBILE_DEPLOY_STATUS.txt <<EOF
           mobile_public_verify=success
-          css_version=20260824e
+          css_version=20260824f
+          line_soft_surface=success
+          line_accent=#06C755
           xserver_sha_verify=success
           public_routes=success
           public_css=success
@@ -149,5 +235,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add MOBILE_DEPLOY_STATUS.txt
-          git commit -m 'スマホ版修正のXServer本番検証成功を記録'
-          git push origin main
+          if ! git diff --cached --quiet; then
+            git commit -m 'LINE淡色化のXServer本番検証成功を記録'
+            git push origin main
+          fi
