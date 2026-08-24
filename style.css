@@ -56,8 +56,8 @@
   html body .site-header .header-line-button span{display:none!important}
   html body .site-header .header-line-button img,
   html body.home .site-header .header-line-button img{
-    width:25px!important;
-    height:25px!important;
+    width:32px!important;
+    height:32px!important;
     margin:0!important;
     border-radius:6px!important;
     object-fit:contain!important;
@@ -154,9 +154,9 @@
   }
   html body .mobile-menu > .mobile-line-call img,
   html body.home .mobile-menu > .mobile-line-call img{
-    width:23px!important;
-    height:23px!important;
-    flex:0 0 23px!important;
+    width:30px!important;
+    height:30px!important;
+    flex:0 0 30px!important;
     margin:0!important;
     border-radius:6px!important;
   }
@@ -174,9 +174,9 @@
     line-height:1.2!important;
   }
   html body .floating-line .line-brand-icon{
-    width:21px!important;
-    height:21px!important;
-    margin-right:5px!important;
+    width:27px!important;
+    height:27px!important;
+    margin-right:6px!important;
     border-radius:5px!important;
   }
   body.menu-open .floating-call,
@@ -246,3 +246,6 @@ html body .floating-line span{
   color:#163D2B!important;
   opacity:1!important;
 }
+
+
+/* mobile-line-icon-size: 2026-08-24g */
