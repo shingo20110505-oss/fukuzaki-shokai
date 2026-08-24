@@ -1,0 +1,126 @@
+name: Deploy clean URL compatibility fix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy-clean-url-compat-20260825.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: fukuzaki-clean-url-compat-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Validate compatibility rules
+        run: |
+          set -euo pipefail
+          test -s .htaccess
+          grep -Fq 'Clean URL compatibility rescue' .htaccess
+          grep -Fq 'style(?:-base-20260824)?\\.css' .htaccess
+          grep -Fq '(?:js|images|css|fonts)' .htaccess
+          grep -Fq 'works-handa-amos-rexx' .htaccess
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Backup and deploy to git-test
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/clean-url-compat-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "BACKUP_DIR=$BACKUP" >> "$GITHUB_ENV"
+          $SSH "$REMOTE" "mkdir -p '$BACKUP/production' '$BACKUP/git-test' '$TEST'; cp -p '$ROOT/.htaccess' '$BACKUP/production/.htaccess'; if [ -f '$TEST/.htaccess' ]; then cp -p '$TEST/.htaccess' '$BACKUP/git-test/.htaccess'; fi"
+          $SCP .htaccess "$REMOTE:$TEST/.htaccess"
+          EXPECTED="$(sha256sum .htaccess | awk '{print $1}')"
+          ACTUAL="$($SSH "$REMOTE" "sha256sum '$TEST/.htaccess' | awk '{print \$1}'")"
+          test "$EXPECTED" = "$ACTUAL"
+          echo 'GIT-TEST HTACCESS SHA VERIFIED'
+
+      - name: Deploy to production
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          $SCP .htaccess "$REMOTE:$ROOT/.htaccess"
+          EXPECTED="$(sha256sum .htaccess | awk '{print $1}')"
+          ACTUAL="$($SSH "$REMOTE" "sha256sum '$ROOT/.htaccess' | awk '{print \$1}'")"
+          test "$EXPECTED" = "$ACTUAL"
+          echo 'PRODUCTION HTACCESS SHA VERIFIED'
+
+      - name: Verify clean URL pages and nested asset rescue
+        run: |
+          set -euo pipefail
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          for route in sales repair models works company faq contact privacy works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            code="$(curl -sS -L --retry 3 -o /tmp/page -w '%{http_code}' -H 'Cache-Control: no-cache' "$BASE/$route/?verify=$NONCE")"
+            test "$code" = 200 || { echo "$route=$code"; exit 1; }
+          done
+
+          # These are the exact URLs a browser builds from the current relative HTML.
+          for asset in \
+            sales/style.css \
+            sales/style-base-20260824.css \
+            sales/js/main.js \
+            sales/images/brand-icon.png \
+            repair/style.css \
+            repair/js/main.js \
+            works/handa-amos-rexx/style.css \
+            works/handa-amos-rexx/js/main.js \
+            works/handa-amos-rexx/images/brand-icon.png; do
+            code="$(curl -sS -L --retry 3 -o /tmp/asset -w '%{http_code}' -H 'Cache-Control: no-cache' "$BASE/$asset?verify=$NONCE")"
+            test "$code" = 200 || { echo "$asset=$code"; exit 1; }
+            test -s /tmp/asset
+          done
+
+          # Relative legacy page links must escape the nested clean URL correctly.
+          final="$(curl -sS -L --retry 3 -o /dev/null -w '%{url_effective}' "$BASE/sales/repair.html")"
+          test "$final" = "$BASE/repair/" || { echo "unexpected redirect: $final"; exit 1; }
+
+          curl -fsSL --retry 3 "$BASE/sales/js/main.js?verify=$NONCE" -o /tmp/main.js
+          node --check /tmp/main.js
+          curl -fsSL --retry 3 "$BASE/sales/style.css?verify=$NONCE" -o /tmp/style.css
+          grep -Fq 'deploy-mobile-polish: 2026-08-24' /tmp/style.css
+          echo 'PUBLIC CLEAN URL ASSET RESCUE VERIFIED'
+
+      - name: Record production success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d '{"state":"success","context":"deploy/clean-url-compat-production","description":"Clean URL CSS/JS compatibility verified on XServer"}' >/dev/null
