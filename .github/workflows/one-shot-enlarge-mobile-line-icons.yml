@@ -1,4 +1,4 @@
-name: One-shot enlarge mobile LINE icons
+name: One-shot enlarge mobile LINE icons and deploy
 
 on:
   push:
@@ -8,56 +8,97 @@ on:
       - '.github/workflows/one-shot-enlarge-mobile-line-icons.yml'
 
 permissions:
-  contents: write
+  contents: read
+  statuses: write
 
 jobs:
-  enlarge-mobile-line-icons:
+  deploy-mobile-line-icon-size:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Checkout main
+      - name: Checkout current main
         uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
 
-      - name: Enlarge smartphone LINE icons
+      - name: Validate enlarged icon CSS
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('style.css')
-          s = p.read_text(encoding='utf-8')
-
-          replacements = {
-              'width:25px!important;\n    height:25px!important;': 'width:32px!important;\n    height:32px!important;',
-              'width:23px!important;\n    height:23px!important;\n    flex:0 0 23px!important;': 'width:30px!important;\n    height:30px!important;\n    flex:0 0 30px!important;',
-              'width:21px!important;\n    height:21px!important;\n    margin-right:5px!important;': 'width:27px!important;\n    height:27px!important;\n    margin-right:6px!important;',
-          }
-
-          for old, new in replacements.items():
-              if old not in s:
-                  raise SystemExit(f'Expected CSS block not found: {old!r}')
-              s = s.replace(old, new, 1)
-
-          marker = '/* mobile-line-icon-size: 2026-08-24g */'
-          if marker not in s:
-              s += '\n\n' + marker + '\n'
-
-          p.write_text(s, encoding='utf-8')
-          PY
-
+          test -s style.css
           grep -Fq 'width:32px!important' style.css
           grep -Fq 'width:30px!important' style.css
           grep -Fq 'width:27px!important' style.css
           grep -Fq 'mobile-line-icon-size: 2026-08-24g' style.css
+          sha256sum style.css > /tmp/style.sha256
 
-      - name: Commit CSS change
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add style.css
-          git commit -m 'スマホのLINEアイコンを見やすく拡大'
-          git push origin main
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Backup and deploy to git-test then production
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/mobile-line-icon-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          $SSH "$REMOTE" "mkdir -p '$BACKUP' '$TEST' && cp -p '$ROOT/style.css' '$BACKUP/style.css'"
+          $SCP style.css /tmp/style.sha256 "$REMOTE:$BACKUP/"
+
+          $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cp "$BACKUP/style.css" "$TEST/style.css"
+          cd "$TEST"
+          sha256sum -c "$BACKUP/style.sha256"
+          REMOTE
+
+          expected="$(sha256sum style.css | awk '{print $1}')"
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/git-test/style.css?verify=${GITHUB_RUN_ID}" -o /tmp/git-test-style.css
+          actual="$(sha256sum /tmp/git-test-style.css | awk '{print $1}')"
+          test "$actual" = "$expected"
+
+          $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cp "$BACKUP/style.css" "$ROOT/style.css"
+          cd "$ROOT"
+          sha256sum -c "$BACKUP/style.sha256"
+          REMOTE
+
+      - name: Verify public production
+        run: |
+          set -euo pipefail
+          expected="$(sha256sum style.css | awk '{print $1}')"
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/style.css?verify=${GITHUB_RUN_ID}" -o /tmp/prod-style.css
+          actual="$(sha256sum /tmp/prod-style.css | awk '{print $1}')"
+          test "$actual" = "$expected"
+          grep -Fq 'width:32px!important' /tmp/prod-style.css
+          grep -Fq 'width:30px!important' /tmp/prod-style.css
+          grep -Fq 'width:27px!important' /tmp/prod-style.css
+          grep -Fq 'mobile-line-icon-size: 2026-08-24g' /tmp/prod-style.css
+          for route in '' sales repair models works company faq contact privacy; do
+            if [ -z "$route" ]; then url="https://ayuto.xsrv.jp/"; else url="https://ayuto.xsrv.jp/$route/"; fi
+            code="$(curl -sS -L --retry 3 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$url?verify=${GITHUB_RUN_ID}")"
+            test "$code" = 200
+          done
+          echo 'PUBLIC MOBILE LINE ICON SIZE VERIFIED'
+
+      - name: Record success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d '{"state":"success","context":"deploy/mobile-line-icon-size","description":"Larger mobile LINE icons verified on XServer"}' >/dev/null
