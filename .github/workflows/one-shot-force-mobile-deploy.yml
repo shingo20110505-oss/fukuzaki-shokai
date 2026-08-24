@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: fukuzaki-production-deploy
+  group: fukuzaki-mobile-force-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
