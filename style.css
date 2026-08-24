@@ -247,5 +247,33 @@ html body .floating-line span{
   opacity:1!important;
 }
 
-
 /* mobile-line-icon-size: 2026-08-24g */
+
+/* mobile-line-header-cleanup: 2026-08-24h */
+@media (max-width:760px){
+  html body .site-header .header-line-button,
+  html body.home .site-header .header-line-button{
+    background:transparent!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+  html body .floating-line{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    gap:8px!important;
+  }
+  html body .floating-line .line-brand-icon{
+    width:27px!important;
+    height:27px!important;
+    flex:0 0 27px!important;
+    display:block!important;
+    margin:0!important;
+    object-fit:contain!important;
+    transform:none!important;
+  }
+  html body .floating-line span{
+    display:block!important;
+    line-height:1!important;
+  }
+}
