@@ -1,0 +1,106 @@
+name: One-shot global LINE header
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-global-line-header.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-global-line-header:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add LINE header and mobile menu to every page
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('js/main.js')
+          s = p.read_text(encoding='utf-8')
+          marker = "  if (body.classList.contains('home')) {"
+          if marker not in s:
+              raise SystemExit('home marker not found')
+
+          if 'data-line-global-header-style' not in s:
+              block = r'''  if (!document.querySelector('[data-line-global-header-style]')) {
+    const globalLineStyle = document.createElement('style');
+    globalLineStyle.setAttribute('data-line-global-header-style', '');
+    globalLineStyle.textContent = `
+      .header-actions{gap:9px}
+      .header-line-button{background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important;box-shadow:0 7px 18px rgba(6,199,85,.16)!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:7px!important}
+      .header-line-button img{width:20px;height:20px;display:block;object-fit:contain}
+      .header-line-button:hover{background:#06C755!important;color:#072d1b!important;box-shadow:0 9px 22px rgba(6,199,85,.22)!important}
+      .mobile-menu .mobile-line-call{margin-top:12px;background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important;box-shadow:0 9px 22px rgba(6,199,85,.16)!important}
+      .mobile-menu .mobile-line-call small,.mobile-menu .mobile-line-call strong,.mobile-menu .mobile-line-call span{color:#072d1b!important;opacity:1!important}
+      .mobile-menu .mobile-line-call .line-menu-title{display:flex;align-items:center;justify-content:center;gap:8px}
+      .mobile-menu .mobile-line-call img{width:28px;height:28px;display:block;object-fit:contain}
+      @media(max-width:1180px){.header-line-button{display:none!important}}
+      @media(max-width:760px){.header-call-button,.header-line-button{display:none!important}}
+    `;
+    document.head.appendChild(globalLineStyle);
+  }
+
+  const globalHeaderCallButton = document.querySelector('.header-call-button');
+  if (globalHeaderCallButton && !document.querySelector('.header-line-button')) {
+    const headerLineButton = document.createElement('a');
+    headerLineButton.className = 'header-call-button header-line-button';
+    headerLineButton.href = lineUrl;
+    headerLineButton.target = '_blank';
+    headerLineButton.rel = 'noopener';
+    headerLineButton.setAttribute('aria-label', 'フクザキ商会のLINE公式アカウントで相談する');
+    headerLineButton.innerHTML = `<img src="${lineIconSrc}" alt="" aria-hidden="true"><span>LINE相談</span>`;
+    globalHeaderCallButton.insertAdjacentElement('afterend', headerLineButton);
+  }
+
+  const globalMobileCall = mobileMenu?.querySelector('.mobile-call');
+  if (globalMobileCall && !mobileMenu.querySelector('.mobile-line-call')) {
+    const mobileLineCall = document.createElement('a');
+    mobileLineCall.className = 'mobile-call mobile-line-call';
+    mobileLineCall.href = lineUrl;
+    mobileLineCall.target = '_blank';
+    mobileLineCall.rel = 'noopener';
+    mobileLineCall.setAttribute('aria-label', 'LINEで写真を送って相談する');
+    mobileLineCall.innerHTML = `<small>写真を見せながら相談できます</small><strong class="line-menu-title"><img src="${lineIconSrc}" alt="" aria-hidden="true">LINEで写真相談</strong><span>機種名・症状・地域・写真を送信</span>`;
+    globalMobileCall.insertAdjacentElement('afterend', mobileLineCall);
+  }
+
+'''
+              s = s.replace(marker, block + marker, 1)
+
+          s = s.replace('// LINE official-green + supplied icon release: 2026-08-24', '// LINE global-header + supplied icon release: 2026-08-24')
+          if 'data-line-global-header-style' not in s:
+              raise SystemExit('global LINE header insertion failed')
+          if "globalHeaderCallButton" not in s or "globalMobileCall" not in s:
+              raise SystemExit('global LINE controls insertion failed')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          node --check js/main.js
+          grep -Fq 'data-line-global-header-style' js/main.js
+          grep -Fq 'globalHeaderCallButton' js/main.js
+          grep -Fq 'globalMobileCall' js/main.js
+          grep -Fq '#06C755' js/main.js
+          grep -Fq 'lineIconSrc' js/main.js
+
+      - name: Commit change
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/main.js
+          if git diff --cached --quiet; then
+            echo 'No changes needed'
+            exit 0
+          fi
+          git commit -m '全ページのヘッダーとモバイルメニューにLINE導線を追加'
+          git push origin main
