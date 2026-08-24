@@ -1,4 +1,4 @@
-name: One-shot mobile LINE icon rebalance deploy
+name: One-shot mobile menu scroll and slide fix
 
 on:
   push:
@@ -8,27 +8,89 @@ on:
       - '.github/workflows/one-shot-mobile-line-header-cleanup.yml'
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
 jobs:
-  deploy-mobile-line-icons:
+  fix-mobile-menu:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout current main
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
 
-      - name: Validate icon rebalance CSS
+      - name: Fix smartphone menu scrolling and slide animation
         run: |
           set -euo pipefail
-          test -s style.css
-          grep -Fq 'mobile-line-icon-rebalance: 2026-08-24i' style.css
-          grep -Fq 'width:40px!important' style.css
-          grep -Fq 'width:36px!important' style.css
-          grep -Fq 'background:transparent!important' style.css
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('style.css')
+          s = p.read_text(encoding='utf-8')
+          marker = '/* mobile-menu-scroll-slide: 2026-08-24j */'
+          if marker not in s:
+              s += r'''
+
+/* mobile-menu-scroll-slide: 2026-08-24j */
+@keyframes mobileMenuSlideIn{
+  from{transform:translateX(26px);opacity:0}
+  to{transform:translateX(0);opacity:1}
+}
+@media (max-width:760px){
+  html body .mobile-menu:not([hidden]){
+    grid-template-rows:minmax(0,1fr) auto!important;
+    overflow:hidden!important;
+    animation:mobileMenuSlideIn .24s cubic-bezier(.2,.8,.2,1) both!important;
+  }
+  html body .mobile-menu nav{
+    min-height:0!important;
+    max-height:100%!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    overscroll-behavior:contain!important;
+    touch-action:pan-y!important;
+    scrollbar-width:thin!important;
+    padding-bottom:14px!important;
+  }
+  html body .mobile-menu nav ul{
+    min-height:max-content!important;
+  }
+  html body .mobile-menu > .mobile-call{
+    align-self:stretch!important;
+  }
+}
+@media (prefers-reduced-motion:reduce){
+  html body .mobile-menu:not([hidden]){animation:none!important}
+}
+'''
+              p.write_text(s, encoding='utf-8')
+          PY
+
+          grep -Fq 'mobile-menu-scroll-slide: 2026-08-24j' style.css
+          grep -Fq 'overflow-y:auto!important' style.css
+          grep -Fq 'touch-action:pan-y!important' style.css
+          grep -Fq 'mobileMenuSlideIn' style.css
+
+          # Blog link already exists in the mobile menu; verify it remains present on representative pages.
+          for f in index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html; do
+            grep -Fq 'https://fukuzakisyoukai.blog.fc2.com/' "$f"
+          done
+
+      - name: Commit menu fix
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add style.css
+          if ! git diff --cached --quiet; then
+            git commit -m 'スマホメニューを指でスクロールできるよう修正'
+            git push origin main
+          fi
+          echo "DEPLOY_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           sha256sum style.css > /tmp/style.sha256
 
       - name: Configure SSH
@@ -50,7 +112,7 @@ jobs:
           REMOTE="ayuto@sv16618.xserver.jp"
           ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
           TEST="$ROOT/git-test"
-          BACKUP="/home/ayuto/deploy-backups/mobile-line-rebalance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BACKUP="/home/ayuto/deploy-backups/mobile-menu-scroll-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           $SSH "$REMOTE" "mkdir -p '$BACKUP' '$TEST' && cp -p '$ROOT/style.css' '$BACKUP/style.css.before'"
           $SCP style.css /tmp/style.sha256 "$REMOTE:$BACKUP/"
@@ -66,7 +128,7 @@ jobs:
           curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/git-test/style.css?verify=${GITHUB_RUN_ID}" -o /tmp/git-test-style.css
           actual="$(sha256sum /tmp/git-test-style.css | awk '{print $1}')"
           test "$actual" = "$expected"
-          grep -Fq 'mobile-line-icon-rebalance: 2026-08-24i' /tmp/git-test-style.css
+          grep -Fq 'mobile-menu-scroll-slide: 2026-08-24j' /tmp/git-test-style.css
 
           $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP' bash -s" <<'REMOTE'
           set -euo pipefail
@@ -82,16 +144,16 @@ jobs:
           curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/style.css?verify=${GITHUB_RUN_ID}" -o /tmp/prod-style.css
           actual="$(sha256sum /tmp/prod-style.css | awk '{print $1}')"
           test "$actual" = "$expected"
-          grep -Fq 'mobile-line-icon-rebalance: 2026-08-24i' /tmp/prod-style.css
-          grep -Fq 'width:40px!important' /tmp/prod-style.css
-          grep -Fq 'width:36px!important' /tmp/prod-style.css
-          grep -Fq 'background:transparent!important' /tmp/prod-style.css
+          grep -Fq 'overflow-y:auto!important' /tmp/prod-style.css
+          grep -Fq 'touch-action:pan-y!important' /tmp/prod-style.css
+          grep -Fq 'mobileMenuSlideIn' /tmp/prod-style.css
+
           for route in '' sales repair models works company faq contact privacy; do
             if [ -z "$route" ]; then url="https://ayuto.xsrv.jp/"; else url="https://ayuto.xsrv.jp/$route/"; fi
-            code="$(curl -sS -L --retry 3 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$url?verify=${GITHUB_RUN_ID}")"
-            test "$code" = 200
+            curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$url?verify=${GITHUB_RUN_ID}" -o /tmp/page.html
+            grep -Fq 'https://fukuzakisyoukai.blog.fc2.com/' /tmp/page.html
           done
-          echo 'PUBLIC MOBILE LINE ICON REBALANCE VERIFIED'
+          echo 'PUBLIC MOBILE MENU SCROLL AND BLOG LINK VERIFIED'
 
       - name: Record success
         env:
@@ -101,5 +163,5 @@ jobs:
           curl -fsS -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -d '{"state":"success","context":"deploy/mobile-line-icon-rebalance","description":"Mobile LINE icons verified on XServer production"}' >/dev/null
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${DEPLOY_SHA}" \
+            -d '{"state":"success","context":"deploy/mobile-menu-scroll","description":"Mobile menu scroll, slide and blog link verified on XServer"}' >/dev/null
