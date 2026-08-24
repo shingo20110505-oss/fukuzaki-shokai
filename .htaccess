@@ -1,4 +1,5 @@
 # Deploy trigger: mobile polish 2026-08-24
+# Deploy trigger: mobile LINE icon rebalance 2026-08-24i
 SetEnvIf Request_URI ".*" Ngx_Cache_NoCacheMode=off
 SetEnvIf Request_URI ".*" Ngx_Cache_AllCacheMode
 
