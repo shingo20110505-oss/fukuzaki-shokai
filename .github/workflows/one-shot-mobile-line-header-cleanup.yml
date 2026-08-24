@@ -1,4 +1,4 @@
-name: One-shot mobile LINE icon rebalance
+name: One-shot mobile LINE icon rebalance deploy
 
 on:
   push:
@@ -8,96 +8,98 @@ on:
       - '.github/workflows/one-shot-mobile-line-header-cleanup.yml'
 
 permissions:
-  contents: write
+  contents: read
+  statuses: write
 
 jobs:
-  rebalance-mobile-line-icons:
+  deploy-mobile-line-icons:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Checkout main
+      - name: Checkout current main
         uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
 
-      - name: Enlarge the two visible smartphone LINE icons
+      - name: Validate icon rebalance CSS
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('style.css')
-          s = p.read_text(encoding='utf-8')
-          marker = '/* mobile-line-icon-rebalance: 2026-08-24i */'
-          if marker not in s:
-              s += r'''
-
-/* mobile-line-icon-rebalance: 2026-08-24i */
-@media (max-width:760px){
-  /* Header: keep the frameless 44px tap target, but let the LINE mark visually fill it. */
-  html body .site-header .header-line-button,
-  html body.home .site-header .header-line-button{
-    width:44px!important;
-    height:44px!important;
-    min-height:44px!important;
-    flex:0 0 44px!important;
-    padding:0!important;
-    background:transparent!important;
-    border:0!important;
-    box-shadow:none!important;
-  }
-  html body .site-header .header-line-button img,
-  html body.home .site-header .header-line-button img{
-    width:40px!important;
-    height:40px!important;
-    max-width:none!important;
-    flex:0 0 40px!important;
-    display:block!important;
-    margin:0!important;
-    object-fit:contain!important;
-  }
-
-  /* Bottom fixed CTA: icon and text should read as one balanced unit. */
-  html body .floating-line{
-    display:flex!important;
-    align-items:center!important;
-    justify-content:center!important;
-    gap:10px!important;
-  }
-  html body .floating-line .line-brand-icon{
-    width:36px!important;
-    height:36px!important;
-    max-width:none!important;
-    flex:0 0 36px!important;
-    display:block!important;
-    margin:0!important;
-    object-fit:contain!important;
-    transform:none!important;
-  }
-  html body .floating-line span{
-    display:block!important;
-    margin:0!important;
-    line-height:1.1!important;
-  }
-}
-'''
-              p.write_text(s, encoding='utf-8')
-          PY
-
+          test -s style.css
           grep -Fq 'mobile-line-icon-rebalance: 2026-08-24i' style.css
           grep -Fq 'width:40px!important' style.css
           grep -Fq 'width:36px!important' style.css
+          grep -Fq 'background:transparent!important' style.css
+          sha256sum style.css > /tmp/style.sha256
 
-      - name: Commit CSS change
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if git diff --quiet -- style.css; then
-            echo 'No change needed'
-            exit 0
-          fi
-          git add style.css
-          git commit -m 'スマホLINEアイコン2箇所を自然な大きさへ拡大'
-          git push origin main
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Backup and deploy to git-test then production
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/mobile-line-rebalance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          $SSH "$REMOTE" "mkdir -p '$BACKUP' '$TEST' && cp -p '$ROOT/style.css' '$BACKUP/style.css.before'"
+          $SCP style.css /tmp/style.sha256 "$REMOTE:$BACKUP/"
+
+          $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cp "$BACKUP/style.css" "$TEST/style.css"
+          cd "$TEST"
+          sha256sum -c "$BACKUP/style.sha256"
+          REMOTE
+
+          expected="$(sha256sum style.css | awk '{print $1}')"
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/git-test/style.css?verify=${GITHUB_RUN_ID}" -o /tmp/git-test-style.css
+          actual="$(sha256sum /tmp/git-test-style.css | awk '{print $1}')"
+          test "$actual" = "$expected"
+          grep -Fq 'mobile-line-icon-rebalance: 2026-08-24i' /tmp/git-test-style.css
+
+          $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cp "$BACKUP/style.css" "$ROOT/style.css"
+          cd "$ROOT"
+          sha256sum -c "$BACKUP/style.sha256"
+          REMOTE
+
+      - name: Verify public production
+        run: |
+          set -euo pipefail
+          expected="$(sha256sum style.css | awk '{print $1}')"
+          curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "https://ayuto.xsrv.jp/style.css?verify=${GITHUB_RUN_ID}" -o /tmp/prod-style.css
+          actual="$(sha256sum /tmp/prod-style.css | awk '{print $1}')"
+          test "$actual" = "$expected"
+          grep -Fq 'mobile-line-icon-rebalance: 2026-08-24i' /tmp/prod-style.css
+          grep -Fq 'width:40px!important' /tmp/prod-style.css
+          grep -Fq 'width:36px!important' /tmp/prod-style.css
+          grep -Fq 'background:transparent!important' /tmp/prod-style.css
+          for route in '' sales repair models works company faq contact privacy; do
+            if [ -z "$route" ]; then url="https://ayuto.xsrv.jp/"; else url="https://ayuto.xsrv.jp/$route/"; fi
+            code="$(curl -sS -L --retry 3 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$url?verify=${GITHUB_RUN_ID}")"
+            test "$code" = 200
+          done
+          echo 'PUBLIC MOBILE LINE ICON REBALANCE VERIFIED'
+
+      - name: Record success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d '{"state":"success","context":"deploy/mobile-line-icon-rebalance","description":"Mobile LINE icons verified on XServer production"}' >/dev/null
