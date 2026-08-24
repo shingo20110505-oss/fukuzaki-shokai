@@ -1,0 +1,223 @@
+name: One-shot mobile cache bust and deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-mobile-cache-bust-deploy.yml'
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: fukuzaki-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-mobile-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Bust CSS and JS cache on every page
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          html_files = [
+              'index.html','sales.html','repair.html','models.html','works.html','company.html',
+              'faq.html','contact.html','privacy.html','404.html',
+              'works-handa-amos-rexx.html','works-anjo-repair.html','works-yokkaichi-repair.html'
+          ]
+          css_ver = '20260824e'
+          js_ver = '20260824e'
+          for name in html_files:
+              p = Path(name)
+              if not p.exists():
+                  raise SystemExit(f'missing {name}')
+              s = p.read_text(encoding='utf-8')
+              s2 = re.sub(r'(?:/)?style\.css\?v=[A-Za-z0-9._-]+', lambda m: ('/' if m.group(0).startswith('/') else '') + f'style.css?v={css_ver}', s)
+              s2 = re.sub(r'(?:/)?js/main\.js\?v=[A-Za-z0-9._-]+', lambda m: ('/' if m.group(0).startswith('/') else '') + f'js/main.js?v={js_ver}', s2)
+              if 'style.css?v=' not in s2:
+                  raise SystemExit(f'no stylesheet ref in {name}')
+              if 'js/main.js?v=' not in s2:
+                  raise SystemExit(f'no main.js ref in {name}')
+              p.write_text(s2, encoding='utf-8')
+
+          css = Path('style.css').read_text(encoding='utf-8')
+          if 'deploy-mobile-polish: 2026-08-24' not in css:
+              raise SystemExit('mobile polish CSS marker missing')
+          if '@import url("style-base-20260824.css?v=20260824a")' not in css:
+              raise SystemExit('base stylesheet import missing')
+          if not Path('style-base-20260824.css').is_file():
+              raise SystemExit('base stylesheet missing')
+          print('CACHE BUST SOURCE VALIDATION OK')
+          PY
+          node --check js/main.js
+          grep -Fq '#06C755' style.css
+          grep -Fq 'mobile-menu' style.css
+          grep -Fq 'header-line-button' style.css
+          grep -Fq '20260824e' index.html
+          grep -Fq '20260824e' sales.html
+          grep -Fq '20260824e' repair.html
+
+      - name: Commit cache-busted page references
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html sales.html repair.html models.html works.html company.html faq.html contact.html privacy.html 404.html works-handa-amos-rexx.html works-anjo-repair.html works-yokkaichi-repair.html
+          if ! git diff --cached --quiet; then
+            git commit -m 'スマホ版CSSとJSを全ページで即時反映'
+            git push origin main
+          fi
+          echo "DEPLOY_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build immutable site archive
+        run: |
+          set -euo pipefail
+          cat > /tmp/mobile-fix-files.txt <<'FILES'
+          index.html
+          sales.html
+          repair.html
+          models.html
+          works.html
+          company.html
+          faq.html
+          contact.html
+          privacy.html
+          404.html
+          works-handa-amos-rexx.html
+          works-anjo-repair.html
+          works-yokkaichi-repair.html
+          style.css
+          style-base-20260824.css
+          js/main.js
+          .htaccess
+          FILES
+          while IFS= read -r f; do test -s "$f" || { echo "missing $f"; exit 1; }; done < /tmp/mobile-fix-files.txt
+          while IFS= read -r f; do sha256sum "$f"; done < /tmp/mobile-fix-files.txt > /tmp/mobile-fix.sha256
+          tar -czf /tmp/mobile-fix.tar.gz -T /tmp/mobile-fix-files.txt
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Back up and deploy to git-test
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/mobile-fix-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "BACKUP_DIR=$BACKUP" >> "$GITHUB_ENV"
+
+          $SSH "$REMOTE" "mkdir -p '$BACKUP/production' '$BACKUP/git-test' '$TEST'"
+          $SCP /tmp/mobile-fix-files.txt /tmp/mobile-fix.sha256 /tmp/mobile-fix.tar.gz "$REMOTE:$BACKUP/"
+          $SSH "$REMOTE" "ROOT='$ROOT' TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          while IFS= read -r f; do
+            if [ -f "$ROOT/$f" ]; then mkdir -p "$BACKUP/production/$(dirname "$f")"; cp -p "$ROOT/$f" "$BACKUP/production/$f"; fi
+            if [ -f "$TEST/$f" ]; then mkdir -p "$BACKUP/git-test/$(dirname "$f")"; cp -p "$TEST/$f" "$BACKUP/git-test/$f"; fi
+          done < "$BACKUP/mobile-fix-files.txt"
+          tar -xzf "$BACKUP/mobile-fix.tar.gz" -C "$TEST"
+          cd "$TEST"
+          sha256sum -c "$BACKUP/mobile-fix.sha256"
+          REMOTE
+
+      - name: Verify git-test
+        run: |
+          set -euo pipefail
+          BASE="https://ayuto.xsrv.jp/git-test"
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-test"
+          for route in '' sales repair models works company faq contact privacy works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            if [ -z "$route" ]; then url="$BASE/?verify=$NONCE"; else url="$BASE/$route/?verify=$NONCE"; fi
+            code="$(curl -sS -L --retry 3 -o /tmp/test-page -w '%{http_code}' -H 'Cache-Control: no-cache' "$url")"
+            test "$code" = 200 || { echo "git-test failed $route $code"; exit 1; }
+          done
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/style.css?verify=$NONCE" -o /tmp/test-style
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/?verify=$NONCE" -o /tmp/test-home
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sales/?verify=$NONCE" -o /tmp/test-sales
+          grep -Fq 'deploy-mobile-polish: 2026-08-24' /tmp/test-style
+          grep -Fq 'style.css?v=20260824e' /tmp/test-home
+          grep -Fq 'style.css?v=20260824e' /tmp/test-sales
+          echo 'GIT-TEST MOBILE FIX VERIFIED'
+
+      - name: Deploy to production and verify
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          BASE="https://ayuto.xsrv.jp"
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-prod"
+
+          $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          tar -xzf "$BACKUP/mobile-fix.tar.gz" -C "$ROOT"
+          cd "$ROOT"
+          sha256sum -c "$BACKUP/mobile-fix.sha256"
+          REMOTE
+
+          for route in '' sales repair models works company faq contact privacy works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            if [ -z "$route" ]; then url="$BASE/?verify=$NONCE"; else url="$BASE/$route/?verify=$NONCE"; fi
+            code="$(curl -sS -L --retry 3 -o /tmp/prod-page -w '%{http_code}' -H 'Cache-Control: no-cache' "$url")"
+            test "$code" = 200 || { echo "production failed $route $code"; exit 1; }
+          done
+
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/style.css?verify=$NONCE" -o /tmp/prod-style
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/style-base-20260824.css?verify=$NONCE" -o /tmp/prod-base
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" -o /tmp/prod-js
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/?verify=$NONCE" -o /tmp/prod-home
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sales/?verify=$NONCE" -o /tmp/prod-sales
+          grep -Fq 'deploy-mobile-polish: 2026-08-24' /tmp/prod-style
+          grep -Fq 'Theme Name: フクザキ商会 公式サイト v4.2' /tmp/prod-base
+          grep -Fq 'header-line-button' /tmp/prod-js
+          grep -Fq 'style.css?v=20260824e' /tmp/prod-home
+          grep -Fq 'style.css?v=20260824e' /tmp/prod-sales
+          code="$(curl -sS -o /tmp/prod-404 -w '%{http_code}' "$BASE/mobile-fix-not-found-${GITHUB_RUN_ID}/")"
+          test "$code" = 404
+          grep -Fq 'ページが見つかりません' /tmp/prod-404
+          echo 'PRODUCTION MOBILE FIX VERIFIED'
+
+      - name: Record success status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          repo = os.environ['GITHUB_REPOSITORY']
+          sha = os.environ['DEPLOY_SHA']
+          token = os.environ['GH_TOKEN']
+          data = json.dumps({
+              'state':'success',
+              'context':'deploy/mobile-cache-bust',
+              'description':'Smartphone CSS/JS cache bust deployed and verified on XServer'
+          }).encode()
+          req = urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/statuses/{sha}', data=data, method='POST',
+              headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','Content-Type':'application/json'}
+          )
+          with urllib.request.urlopen(req, timeout=20) as r:
+              print(r.status)
+          PY
