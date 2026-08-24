@@ -49,7 +49,8 @@
     gap:0!important;
     border:1px solid #06C755!important;
     border-radius:12px!important;
-    background:#06C755!important;
+    background:#F4FFF8!important;
+    color:#163D2B!important;
     box-shadow:none!important;
   }
   html body .site-header .header-line-button span{display:none!important}
@@ -123,8 +124,8 @@
   }
   html body .mobile-menu > .mobile-line-call,
   html body.home .mobile-menu > .mobile-line-call{
-    background:#06C755!important;
-    color:#072d1b!important;
+    background:#F4FFF8!important;
+    color:#163D2B!important;
     border:1px solid #06C755!important;
   }
   html body .mobile-menu > .mobile-call small{
@@ -196,4 +197,52 @@
   html body .mobile-menu > .mobile-call strong{font-size:14px!important}
   html body .floating-call span,
   html body .floating-line span{font-size:13px!important}
+}
+
+/* LINE soft-surface release: 2026-08-24f
+   Official #06C755 stays as the accent; large filled green areas are softened. */
+html body .site-header .header-line-button,
+html body.home .site-header .header-line-button{
+  background:#F4FFF8!important;
+  border-color:#06C755!important;
+  color:#163D2B!important;
+  box-shadow:0 6px 16px rgba(6,199,85,.10)!important;
+}
+html body .site-header .header-line-button:hover,
+html body.home .site-header .header-line-button:hover{
+  background:#E8FFF0!important;
+  border-color:#06C755!important;
+  color:#163D2B!important;
+  box-shadow:0 8px 20px rgba(6,199,85,.13)!important;
+}
+html body.home .hero-line-cta,
+html body.home .contact-line-display,
+html body .mobile-menu > .mobile-line-call,
+html body.home .mobile-menu > .mobile-line-call,
+html body .floating-line{
+  background:#F4FFF8!important;
+  border-color:#06C755!important;
+  color:#163D2B!important;
+  box-shadow:0 8px 20px rgba(6,199,85,.10)!important;
+}
+html body.home .hero-line-cta:hover,
+html body.home .contact-line-display:hover,
+html body .mobile-menu > .mobile-line-call:hover,
+html body.home .mobile-menu > .mobile-line-call:hover,
+html body .floating-line:hover{
+  background:#E8FFF0!important;
+  color:#163D2B!important;
+}
+html body.home .hero-line-cta small,
+html body.home .hero-line-cta strong,
+html body.home .hero-line-cta span,
+html body.home .contact-line-display small,
+html body.home .contact-line-display strong,
+html body.home .contact-line-display span,
+html body .mobile-menu > .mobile-line-call small,
+html body .mobile-menu > .mobile-line-call strong,
+html body .mobile-menu > .mobile-line-call span,
+html body .floating-line span{
+  color:#163D2B!important;
+  opacity:1!important;
 }
