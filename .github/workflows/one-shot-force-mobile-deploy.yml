@@ -1,0 +1,153 @@
+name: One-shot force mobile deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-force-mobile-deploy.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fukuzaki-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  force-mobile-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate source
+        run: |
+          set -euo pipefail
+          grep -Fq 'style.css?v=20260824e' index.html
+          grep -Fq 'style.css?v=20260824e' sales.html
+          grep -Fq 'style.css?v=20260824e' repair.html
+          grep -Fq 'style.css?v=20260824e' models.html
+          grep -Fq 'style.css?v=20260824e' works.html
+          grep -Fq 'style.css?v=20260824e' company.html
+          grep -Fq 'style.css?v=20260824e' faq.html
+          grep -Fq 'style.css?v=20260824e' contact.html
+          grep -Fq 'style.css?v=20260824e' privacy.html
+          grep -Fq 'deploy-mobile-polish: 2026-08-24' style.css
+          grep -Fq 'header-line-button' style.css
+          grep -Fq 'mobile-menu' style.css
+          test -s style-base-20260824.css
+          node --check js/main.js
+
+      - name: Build deploy archive
+        run: |
+          set -euo pipefail
+          cat > /tmp/files.txt <<'FILES'
+          index.html
+          sales.html
+          repair.html
+          models.html
+          works.html
+          company.html
+          faq.html
+          contact.html
+          privacy.html
+          404.html
+          works-handa-amos-rexx.html
+          works-anjo-repair.html
+          works-yokkaichi-repair.html
+          style.css
+          style-base-20260824.css
+          js/main.js
+          .htaccess
+          FILES
+          while IFS= read -r f; do test -s "$f" || exit 1; done < /tmp/files.txt
+          while IFS= read -r f; do sha256sum "$f"; done < /tmp/files.txt > /tmp/source.sha256
+          tar -czf /tmp/site.tar.gz -T /tmp/files.txt
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Backup and deploy exact archive
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/mobile-force-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          $SSH "$REMOTE" "mkdir -p '$BACKUP/production' '$BACKUP/git-test' '$TEST'"
+          $SCP /tmp/files.txt /tmp/source.sha256 /tmp/site.tar.gz "$REMOTE:$BACKUP/"
+          $SSH "$REMOTE" "ROOT='$ROOT' TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          while IFS= read -r f; do
+            if [ -f "$ROOT/$f" ]; then mkdir -p "$BACKUP/production/$(dirname "$f")"; cp -p "$ROOT/$f" "$BACKUP/production/$f"; fi
+            if [ -f "$TEST/$f" ]; then mkdir -p "$BACKUP/git-test/$(dirname "$f")"; cp -p "$TEST/$f" "$BACKUP/git-test/$f"; fi
+          done < "$BACKUP/files.txt"
+          tar -xzf "$BACKUP/site.tar.gz" -C "$TEST"
+          cd "$TEST"
+          sha256sum -c "$BACKUP/source.sha256"
+          tar -xzf "$BACKUP/site.tar.gz" -C "$ROOT"
+          cd "$ROOT"
+          sha256sum -c "$BACKUP/source.sha256"
+          grep -Fq 'style.css?v=20260824e' "$ROOT/index.html"
+          grep -Fq 'style.css?v=20260824e' "$ROOT/sales.html"
+          grep -Fq 'deploy-mobile-polish: 2026-08-24' "$ROOT/style.css"
+          test -s "$ROOT/style-base-20260824.css"
+          grep -Fq 'header-line-button' "$ROOT/js/main.js"
+          echo 'XSERVER FILE VERIFY SUCCESS'
+          REMOTE
+          echo "BACKUP_DIR=$BACKUP" >> "$GITHUB_ENV"
+
+      - name: Verify public production
+        run: |
+          set -euo pipefail
+          BASE='https://ayuto.xsrv.jp'
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for route in '' sales repair models works company faq contact privacy works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            if [ -z "$route" ]; then url="$BASE/?verify=$NONCE"; else url="$BASE/$route/?verify=$NONCE"; fi
+            code="$(curl -sS -L --retry 3 -o /tmp/page -w '%{http_code}' -H 'Cache-Control: no-cache' "$url")"
+            test "$code" = 200 || { echo "$route=$code"; exit 1; }
+          done
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/?verify=$NONCE" -o /tmp/home
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sales/?verify=$NONCE" -o /tmp/sales
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/style.css?verify=$NONCE" -o /tmp/style
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/style-base-20260824.css?verify=$NONCE" -o /tmp/base
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" -o /tmp/js
+          grep -Fq 'style.css?v=20260824e' /tmp/home
+          grep -Fq 'style.css?v=20260824e' /tmp/sales
+          grep -Fq 'deploy-mobile-polish: 2026-08-24' /tmp/style
+          grep -Fq 'Theme Name: フクザキ商会 公式サイト v4.2' /tmp/base
+          grep -Fq 'header-line-button' /tmp/js
+          echo 'PUBLIC MOBILE FIX SUCCESS'
+
+      - name: Commit success record
+        run: |
+          set -euo pipefail
+          cat > MOBILE_DEPLOY_STATUS.txt <<EOF
+          mobile_public_verify=success
+          css_version=20260824e
+          xserver_sha_verify=success
+          public_routes=success
+          public_css=success
+          public_js=success
+          backup=$BACKUP_DIR
+          EOF
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add MOBILE_DEPLOY_STATUS.txt
+          git commit -m 'スマホ版修正のXServer本番検証成功を記録'
+          git push origin main
