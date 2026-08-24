@@ -1,0 +1,265 @@
+name: Finalize homepage LINE release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/finalize-home-line.yml'
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: fukuzaki-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch homepage with visible LINE and internal case links
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+
+          def replace_once(old, new, label):
+              global s
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, got {count}')
+              s = s.replace(old, new, 1)
+
+          replace_once(
+              '<meta name="description" content="全自動麻雀卓の販売・修理ならフクザキ商会。愛知・三重・岐阜全域と近県へ、新品・中古卓、納品設置、出張修理、持ち込み修理に対応します。">',
+              '<meta name="description" content="全自動麻雀卓の販売・修理ならフクザキ商会。愛知・三重・岐阜全域と近県へ、新品・中古卓、納品設置、出張修理、持ち込み修理に対応。電話・LINEで相談できます。">',
+              'meta description')
+          replace_once(
+              '<meta property="og:description" content="全自動麻雀卓の販売・修理ならフクザキ商会。愛知・三重・岐阜全域と近県へ、新品・中古卓、納品設置、出張修理、持ち込み修理に対応します。">',
+              '<meta property="og:description" content="全自動麻雀卓の販売・修理ならフクザキ商会。愛知・三重・岐阜全域と近県へ、新品・中古卓、納品設置、出張修理、持ち込み修理に対応。電話・LINEで相談できます。">',
+              'og description')
+          replace_once(
+              '        <li><a href="contact.html" >お問い合わせ</a></li>\n        <li><a href="https://fukuzakisyoukai.blog.fc2.com/" target="_blank" rel="noopener">社長ブログ・作業記録</a></li>',
+              '        <li><a href="contact.html" >お問い合わせ</a></li>\n        <li><a href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener">LINEで写真相談</a></li>\n        <li><a href="https://fukuzakisyoukai.blog.fc2.com/" target="_blank" rel="noopener">社長ブログ・作業記録</a></li>',
+              'mobile LINE link')
+          replace_once(
+              '          <a class="button button-secondary hero-sub-cta" href="repair.html">修理案内を見る <span aria-hidden="true">→</span></a>',
+              '          <a class="button button-secondary hero-sub-cta" href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener">LINEで写真相談 <span aria-hidden="true">→</span></a>',
+              'hero LINE CTA')
+          replace_once(
+              '        <p class="hero-note">機種名が分からない場合も、卓の特徴や症状を分かる範囲でお伝えください。</p>',
+              '        <p class="hero-note">電話は直接相談したい方へ。LINEでは機種名・症状・地域と、卓全体や故障箇所の写真を送ってご相談いただけます。</p>',
+              'hero note')
+          replace_once(
+              '        <p class="section-lead">症状が同じでも原因や必要な作業は異なります。電話で状況を確認し、出張、持ち込み、部品確認、買い替えなどの進め方をご案内します。</p>',
+              '        <p class="section-lead">症状が同じでも原因や必要な作業は異なります。電話やLINEで状況を確認し、出張、持ち込み、部品確認、買い替えなどの進め方をご案内します。</p>',
+              'trust lead')
+          replace_once(
+              '<h3>電話で分かりやすく<br>相談できます</h3><p>専門用語が分からなくても大丈夫です。分かる範囲で状況をお聞かせください。</p>',
+              '<h3>電話・LINEで<br>相談できます</h3><p>専門用語が分からなくても大丈夫です。LINEでは写真も送れるため、症状を言葉で説明しにくい場合にもご利用いただけます。</p>',
+              'trust LINE card')
+          replace_once(
+              '<a class="all-link" href="https://fukuzakisyoukai.blog.fc2.com/" target="_blank" rel="noopener">作業記録をすべて見る <span aria-hidden="true">↗</span></a>',
+              '<a class="all-link" href="works.html">実績をすべて見る <span aria-hidden="true">→</span></a>',
+              'works overview link')
+          replace_once(
+              '<a class="worklog-card reveal" href="https://fukuzakisyoukai.blog.fc2.com/blog-entry-3470.html" target="_blank" rel="noopener">',
+              '<a class="worklog-card reveal" href="works/yokkaichi-repair/">',
+              'yokkaichi internal link')
+          replace_once(
+              '<a class="worklog-card reveal" href="https://fukuzakisyoukai.blog.fc2.com/blog-entry-3469.html" target="_blank" rel="noopener">',
+              '<a class="worklog-card reveal" href="works/anjo-repair/">',
+              'anjo internal link')
+          replace_once(
+              '<a class="worklog-card reveal" href="https://fukuzakisyoukai.blog.fc2.com/blog-entry-3463.html" target="_blank" rel="noopener">',
+              '<a class="worklog-card reveal" href="works/handa-amos-rexx/">',
+              'handa internal link')
+          if s.count('詳しい作業記録を読む <span aria-hidden="true">↗</span>') != 3:
+              raise SystemExit('work card labels: expected 3 matches')
+          s = s.replace('詳しい作業記録を読む <span aria-hidden="true">↗</span>', '実績詳細を見る <span aria-hidden="true">→</span>')
+          replace_once(
+              '        <p class="section-lead">機種・年式・部品の供給状況により、対応できない場合があります。現在の対応可否は電話で確認します。</p>',
+              '        <p class="section-lead">機種・年式・部品の供給状況により、対応できない場合があります。現在の対応可否は電話またはLINEで確認します。</p>',
+              'models lead')
+          replace_once(
+              '        <p>卓本体、操作部、表示枠などにあるメーカー名や型番をご確認ください。分からない場合は、卓の特徴と症状を電話でお伝えください。</p>',
+              '        <p>卓本体、操作部、表示枠などにあるメーカー名や型番をご確認ください。分からない場合は、卓の特徴と症状を電話でお伝えいただくか、LINEで写真をお送りください。</p>',
+              'models panel')
+          replace_once(
+              '    <p class="section-kicker">電話相談</p>',
+              '    <p class="section-kicker">電話・LINE相談</p>',
+              'contact kicker')
+          replace_once(
+              '    <p>機種名が分からなくても大丈夫です。故障の状態、設置場所、ご希望を分かる範囲でお伝えください。</p>',
+              '    <p>機種名が分からなくても大丈夫です。電話では分かる範囲で状況をお伝えください。写真を見せながら相談したい場合はLINEをご利用いただけます。</p>',
+              'contact text')
+          replace_once(
+              '    <p class="contact-meta">営業時間 9:00～18:00 ／ 電話受付 7:00～23:30 ／ 年中無休</p>',
+              '    <p class="contact-meta">営業時間 9:00～18:00 ／ 電話受付 7:00～23:30 ／ 年中無休　｜　<a href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener">LINEで写真相談</a></p>',
+              'contact LINE text link')
+          replace_once(
+              '        <li><a href="privacy.html">プライバシーポリシー</a></li>\n        <li><a href="https://fukuzakisyoukai.blog.fc2.com/" target="_blank" rel="noopener">社長ブログ・作業記録</a></li>',
+              '        <li><a href="privacy.html">プライバシーポリシー</a></li>\n        <li><a href="https://line.me/R/ti/p/@761qehyo" target="_blank" rel="noopener">LINEで写真相談</a></li>\n        <li><a href="https://fukuzakisyoukai.blog.fc2.com/" target="_blank" rel="noopener">社長ブログ・作業記録</a></li>',
+              'footer LINE link')
+
+          p.write_text(s, encoding='utf-8')
+          print('HOMEPAGE PATCH COMPLETE')
+          PY
+
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' index.html
+          grep -Fq 'LINEで写真相談' index.html
+          grep -Fq 'href="works/handa-amos-rexx/"' index.html
+          grep -Fq 'href="works/anjo-repair/"' index.html
+          grep -Fq 'href="works/yokkaichi-repair/"' index.html
+          grep -Fq 'tel:0566427743' index.html
+          grep -Fq 'js/main.js?v=20260814d' index.html
+          grep -Fq '/images/favicon-32-20260823.png' index.html
+          grep -Fq '/images/favicon-16-20260823.png' index.html
+          test "$(grep -Fc '実績詳細を見る' index.html)" -eq 3
+
+      - name: Commit homepage as main source of truth
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --check
+          git commit -m 'トップページにLINE写真相談と自社実績導線を反映'
+          git push origin HEAD:main
+          NEW_SHA="$(git rev-parse HEAD)"
+          echo "NEW_SHA=$NEW_SHA" >> "$GITHUB_ENV"
+          echo "Committed homepage: $NEW_SHA"
+
+      - name: Configure SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY" || { echo 'SSH_PRIVATE_KEY is missing'; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Back up production and git-test homepage
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/home-final-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "HOME_FINAL_BACKUP=$BACKUP" >> "$GITHUB_ENV"
+
+          connected=0
+          for i in 1 2 3 4 5; do
+            echo "SSH connection attempt $i"
+            if $SSH "$REMOTE" "test -d '$ROOT' && test -d '$TEST' && mkdir -p '$BACKUP'"; then connected=1; break; fi
+            sleep 8
+          done
+          test "$connected" -eq 1 || { echo 'SSH connection failed after retries'; exit 1; }
+          $SSH "$REMOTE" "cp -p '$ROOT/index.html' '$BACKUP/production-index.html' && cp -p '$TEST/index.html' '$BACKUP/git-test-index.html'"
+          $SCP index.html "$REMOTE:$BACKUP/new-index.html"
+          sha256sum index.html > /tmp/final-home.sha256
+          $SCP /tmp/final-home.sha256 "$REMOTE:$BACKUP/source.sha256"
+          $SSH "$REMOTE" "test -s '$BACKUP/production-index.html' && test -s '$BACKUP/git-test-index.html' && test -s '$BACKUP/new-index.html' && test -s '$BACKUP/source.sha256'"
+          echo "BACKUP READY: $BACKUP"
+
+      - name: Deploy to git-test and verify
+        run: |
+          set -Eeuo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BASE="https://ayuto.xsrv.jp"
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-final-test"
+
+          rollback() { trap - ERR; set +e; $SSH "$REMOTE" "cp -p '$HOME_FINAL_BACKUP/git-test-index.html' '$TEST/index.html'"; exit 1; }
+          trap rollback ERR
+          $SSH "$REMOTE" "cp -p '$HOME_FINAL_BACKUP/new-index.html' '$TEST/index.html' && cd '$TEST' && sha256sum -c '$HOME_FINAL_BACKUP/source.sha256'"
+          expected="$(sha256sum index.html | awk '{print $1}')"
+          curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' "$BASE/git-test/?verify=$NONCE" -o /tmp/final-test-index
+          actual="$(sha256sum /tmp/final-test-index | awk '{print $1}')"
+          test "$actual" = "$expected"
+          grep -Fq 'LINEで写真相談' /tmp/final-test-index
+          grep -Fq 'href="works/anjo-repair/"' /tmp/final-test-index
+          grep -Fq 'tel:0566427743' /tmp/final-test-index
+          echo 'GIT-TEST FINAL HOMEPAGE VERIFIED'
+          trap - ERR
+
+      - name: Deploy to production and run full after-check
+        run: |
+          set -Eeuo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          BASE="https://ayuto.xsrv.jp"
+          NONCE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-final-prod"
+
+          rollback() { trap - ERR; set +e; $SSH "$REMOTE" "cp -p '$HOME_FINAL_BACKUP/production-index.html' '$ROOT/index.html'"; echo 'PRODUCTION HOMEPAGE ROLLBACK COMPLETE'; exit 1; }
+          trap rollback ERR
+          $SSH "$REMOTE" "cp -p '$HOME_FINAL_BACKUP/new-index.html' '$ROOT/index.html' && cd '$ROOT' && sha256sum -c '$HOME_FINAL_BACKUP/source.sha256'"
+          expected="$(sha256sum index.html | awk '{print $1}')"
+          curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' "$BASE/?verify=$NONCE" -o /tmp/final-prod-index
+          actual="$(sha256sum /tmp/final-prod-index | awk '{print $1}')"
+          test "$actual" = "$expected"
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/final-prod-index
+          grep -Fq 'LINEで写真相談' /tmp/final-prod-index
+          grep -Fq 'href="works/handa-amos-rexx/"' /tmp/final-prod-index
+          grep -Fq 'href="works/anjo-repair/"' /tmp/final-prod-index
+          grep -Fq 'href="works/yokkaichi-repair/"' /tmp/final-prod-index
+          grep -Fq 'tel:0566427743' /tmp/final-prod-index
+
+          for route in repair contact faq privacy works works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            code="$(curl -sS -L --retry 3 -o /tmp/final-route -w '%{http_code}' -H 'Cache-Control: no-cache' "$BASE/$route/?verify=$NONCE")"
+            test "$code" = 200 || { echo "Production route failed: $route ($code)"; exit 1; }
+          done
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/repair/?verify=$NONCE" -o /tmp/final-repair
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/contact/?verify=$NONCE" -o /tmp/final-contact
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/works/?verify=$NONCE" -o /tmp/final-works
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/sitemap.xml?verify=$NONCE" -o /tmp/final-sitemap
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/robots.txt?verify=$NONCE" -o /tmp/final-robots
+          curl -fsSL -H 'Cache-Control: no-cache' "$BASE/js/main.js?verify=$NONCE" -o /tmp/final-js
+          curl -fsSI --retry 3 "$BASE/style.css?verify=$NONCE" >/dev/null
+          grep -Fq '料金が変わる主な要素' /tmp/final-repair
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/final-contact
+          grep -Fq '/works/anjo-repair/' /tmp/final-works
+          grep -Fq 'https://ayuto.xsrv.jp/works/anjo-repair/' /tmp/final-sitemap
+          grep -Fq 'Sitemap:' /tmp/final-robots
+          grep -Fq 'https://line.me/R/ti/p/@761qehyo' /tmp/final-js
+          code="$(curl -sS -o /tmp/final-404 -w '%{http_code}' "$BASE/final-after-check-not-found-${GITHUB_RUN_ID}/")"
+          test "$code" = 404
+          grep -Fq 'ページが見つかりません' /tmp/final-404
+          echo 'PRODUCTION FINAL HOMEPAGE AND SITE AFTER-CHECK OK'
+          trap - ERR
+
+      - name: Publish final commit status
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          SHA="${NEW_SHA:-$GITHUB_SHA}"
+          if [ "$JOB_STATUS" = "success" ]; then STATE=success; DESC='Homepage LINE final release verified'; else STATE=failure; DESC='Homepage LINE final release failed or rolled back'; fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -d "{\"state\":\"$STATE\",\"context\":\"deploy/home-line-final\",\"description\":\"$DESC\",\"target_url\":\"${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}"
