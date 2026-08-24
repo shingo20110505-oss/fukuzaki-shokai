@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   // LINE equal-priority consultation release: 2026-08-24
+  // Deployment verification marker: LINEで相談
 
   const root = document.documentElement;
   const body = document.body;
