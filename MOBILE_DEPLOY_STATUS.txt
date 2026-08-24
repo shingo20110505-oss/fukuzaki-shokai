@@ -1,0 +1,7 @@
+mobile_public_verify=success
+css_version=20260824e
+xserver_sha_verify=success
+public_routes=success
+public_css=success
+public_js=success
+backup=/home/ayuto/deploy-backups/mobile-force-32684981816-1
