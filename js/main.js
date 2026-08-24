@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  // LINE official-green + supplied icon release: 2026-08-24
+  // LINE global-header + supplied icon release: 2026-08-24
   // line-icons8-brand-v1
   // Deployment verification marker: LINEで相談
 
@@ -44,6 +44,47 @@
     floatingCall.insertAdjacentElement('afterend', floatingLine);
   }
 
+  if (!document.querySelector('[data-line-global-header-style]')) {
+    const globalLineStyle = document.createElement('style');
+    globalLineStyle.setAttribute('data-line-global-header-style', '');
+    globalLineStyle.textContent = `
+      .header-actions{gap:9px}
+      .header-line-button{background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important;box-shadow:0 7px 18px rgba(6,199,85,.16)!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:7px!important}
+      .header-line-button img{width:20px;height:20px;display:block;object-fit:contain}
+      .header-line-button:hover{background:#06C755!important;color:#072d1b!important;box-shadow:0 9px 22px rgba(6,199,85,.22)!important}
+      .mobile-menu .mobile-line-call{margin-top:12px;background:#06C755!important;color:#072d1b!important;border:1px solid #06C755!important;box-shadow:0 9px 22px rgba(6,199,85,.16)!important}
+      .mobile-menu .mobile-line-call small,.mobile-menu .mobile-line-call strong,.mobile-menu .mobile-line-call span{color:#072d1b!important;opacity:1!important}
+      .mobile-menu .mobile-line-call .line-menu-title{display:flex;align-items:center;justify-content:center;gap:8px}
+      .mobile-menu .mobile-line-call img{width:28px;height:28px;display:block;object-fit:contain}
+      @media(max-width:1180px){.header-line-button{display:none!important}}
+      @media(max-width:760px){.header-call-button,.header-line-button{display:none!important}}
+    `;
+    document.head.appendChild(globalLineStyle);
+  }
+
+  const globalHeaderCallButton = document.querySelector('.header-call-button');
+  if (globalHeaderCallButton && !document.querySelector('.header-line-button')) {
+    const headerLineButton = document.createElement('a');
+    headerLineButton.className = 'header-call-button header-line-button';
+    headerLineButton.href = lineUrl;
+    headerLineButton.target = '_blank';
+    headerLineButton.rel = 'noopener';
+    headerLineButton.setAttribute('aria-label', 'フクザキ商会のLINE公式アカウントで相談する');
+    headerLineButton.innerHTML = `<img src="${lineIconSrc}" alt="" aria-hidden="true"><span>LINE相談</span>`;
+    globalHeaderCallButton.insertAdjacentElement('afterend', headerLineButton);
+  }
+
+  const globalMobileCall = mobileMenu?.querySelector('.mobile-call');
+  if (globalMobileCall && !mobileMenu.querySelector('.mobile-line-call')) {
+    const mobileLineCall = document.createElement('a');
+    mobileLineCall.className = 'mobile-call mobile-line-call';
+    mobileLineCall.href = lineUrl;
+    mobileLineCall.target = '_blank';
+    mobileLineCall.rel = 'noopener';
+    mobileLineCall.setAttribute('aria-label', 'LINEで写真を送って相談する');
+    mobileLineCall.innerHTML = `<small>写真を見せながら相談できます</small><strong class="line-menu-title"><img src="${lineIconSrc}" alt="" aria-hidden="true">LINEで写真相談</strong><span>機種名・症状・地域・写真を送信</span>`;
+    globalMobileCall.insertAdjacentElement('afterend', mobileLineCall);
+  }
   if (body.classList.contains('home')) {
     if (!document.querySelector('[data-line-equal-priority-style]')) {
       const lineStyle = document.createElement('style');
