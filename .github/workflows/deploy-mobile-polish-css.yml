@@ -1,0 +1,154 @@
+name: Deploy mobile polish CSS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'style.css'
+      - 'style-base-20260824.css'
+      - '.htaccess'
+      - '.github/workflows/deploy-mobile-polish-css.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: fukuzaki-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-mobile-css:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Validate mobile CSS source
+        run: |
+          set -euo pipefail
+          test -s style.css
+          test -s style-base-20260824.css
+          test -s .htaccess
+          grep -Fq '@import url("style-base-20260824.css?v=20260824a")' style.css
+          grep -Fq 'mobile-menu:not([hidden])' style.css
+          grep -Fq '#06C755' style.css
+          grep -Fq 'header-line-button' style.css
+          grep -Fq 'Theme Name: フクザキ商会 公式サイト v4.2' style-base-20260824.css
+          grep -Fq 'style\.css' .htaccess
+          printf '%s\n' style.css style-base-20260824.css .htaccess > /tmp/mobile-files.txt
+          while IFS= read -r f; do sha256sum "$f"; done < /tmp/mobile-files.txt > /tmp/mobile-source.sha256
+          tar -czf /tmp/mobile-polish.tar.gz -T /tmp/mobile-files.txt
+
+      - name: Configure SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Backup production and git-test
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          SCP="scp -i $HOME/.ssh/id_xserver -P 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BACKUP="/home/ayuto/deploy-backups/mobile-polish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "BACKUP_DIR=$BACKUP" >> "$GITHUB_ENV"
+          $SSH "$REMOTE" "mkdir -p '$BACKUP/production' '$BACKUP/git-test' '$TEST'"
+          $SCP /tmp/mobile-files.txt /tmp/mobile-source.sha256 /tmp/mobile-polish.tar.gz "$REMOTE:$BACKUP/"
+          $SSH "$REMOTE" "ROOT='$ROOT' TEST='$TEST' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          : > "$BACKUP/production-existing.txt"
+          : > "$BACKUP/git-test-existing.txt"
+          while IFS= read -r f; do
+            for scope in production git-test; do
+              if [ "$scope" = production ]; then base="$ROOT"; else base="$TEST"; fi
+              if [ -f "$base/$f" ]; then
+                mkdir -p "$BACKUP/$scope/$(dirname "$f")"
+                cp -p "$base/$f" "$BACKUP/$scope/$f"
+                printf '%s\n' "$f" >> "$BACKUP/${scope}-existing.txt"
+              fi
+            done
+          done < "$BACKUP/mobile-files.txt"
+          test -s "$BACKUP/production/style.css"
+          REMOTE
+
+      - name: Deploy to git-test and verify
+        run: |
+          set -Eeuo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          TEST="$ROOT/git-test"
+          BASE="https://ayuto.xsrv.jp"
+          $SSH "$REMOTE" "TEST='$TEST' BACKUP='$BACKUP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          tar -xzf "$BACKUP/mobile-polish.tar.gz" -C "$TEST"
+          cd "$TEST"
+          sha256sum -c "$BACKUP/mobile-source.sha256"
+          REMOTE
+          for f in style.css style-base-20260824.css; do
+            expected="$(sha256sum "$f" | awk '{print $1}')"
+            tmp="/tmp/test-${f//\//_}"
+            curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/git-test/$f?verify=${GITHUB_RUN_ID}" -o "$tmp"
+            actual="$(sha256sum "$tmp" | awk '{print $1}')"
+            test "$actual" = "$expected"
+          done
+          grep -Fq 'style-base-20260824.css?v=20260824a' /tmp/test-style.css
+          grep -Fq 'mobile-menu:not([hidden])' /tmp/test-style.css
+          grep -Fq 'Theme Name: フクザキ商会 公式サイト v4.2' /tmp/test-style-base-20260824.css
+          echo 'GIT-TEST MOBILE CSS VERIFIED'
+
+      - name: Deploy to production and verify
+        run: |
+          set -Eeuo pipefail
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp/public_html"
+          BASE="https://ayuto.xsrv.jp"
+          $SSH "$REMOTE" "ROOT='$ROOT' BACKUP='$BACKUP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          tar -xzf "$BACKUP/mobile-polish.tar.gz" -C "$ROOT"
+          cd "$ROOT"
+          sha256sum -c "$BACKUP/mobile-source.sha256"
+          REMOTE
+          for f in style.css style-base-20260824.css; do
+            expected="$(sha256sum "$f" | awk '{print $1}')"
+            tmp="/tmp/prod-${f//\//_}"
+            curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$BASE/$f?verify=${GITHUB_RUN_ID}" -o "$tmp"
+            actual="$(sha256sum "$tmp" | awk '{print $1}')"
+            test "$actual" = "$expected"
+          done
+          grep -Fq 'style-base-20260824.css?v=20260824a' /tmp/prod-style.css
+          grep -Fq 'mobile-menu:not([hidden])' /tmp/prod-style.css
+          grep -Fq '#06C755' /tmp/prod-style.css
+          grep -Fq 'Theme Name: フクザキ商会 公式サイト v4.2' /tmp/prod-style-base-20260824.css
+          for route in '' sales repair models works company faq contact privacy works/handa-amos-rexx works/anjo-repair works/yokkaichi-repair; do
+            if [ -z "$route" ]; then url="$BASE/"; else url="$BASE/$route/"; fi
+            code="$(curl -sS -L --retry 3 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$url?verify=${GITHUB_RUN_ID}")"
+            test "$code" = 200
+          done
+          curl -fsSI -H 'Cache-Control: no-cache' "$BASE/style.css?verify=${GITHUB_RUN_ID}" | tr -d '\r' | grep -Ei '^cache-control:.*no-cache' >/dev/null
+          echo 'PRODUCTION MOBILE CSS VERIFIED'
+
+      - name: Record success status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d '{"state":"success","context":"deploy/mobile-polish-production","description":"Mobile CSS verified on XServer production"}' >/dev/null
