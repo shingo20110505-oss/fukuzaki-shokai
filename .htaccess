@@ -1,5 +1,6 @@
 # Deploy trigger: mobile polish 2026-08-24
 # Deploy trigger: mobile LINE icon rebalance 2026-08-24i
+# Clean URL asset compatibility fix: 2026-08-25
 SetEnvIf Request_URI ".*" Ngx_Cache_NoCacheMode=off
 SetEnvIf Request_URI ".*" Ngx_Cache_AllCacheMode
 
@@ -20,6 +21,30 @@ RewriteCond %{HTTPS} !on
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
 ErrorDocument 404 /404.html
+
+# ----------------------------------------------------------------------
+# Clean URL compatibility rescue
+# ----------------------------------------------------------------------
+# Pages are published at clean URLs such as /sales/ and /works/.../ while
+# several legacy HTML files still contain document-relative asset paths.
+# Without these rules, a browser resolves style.css as /sales/style.css,
+# js/main.js as /sales/js/main.js, images/... as /sales/images/..., etc.
+# Keep these rescue rules before the page rewrite rules so CSS/JS/images
+# continue to work on every clean URL even if an older HTML copy is cached.
+
+# Root frontend CSS, including the CSS file imported by style.css.
+RewriteRule ^(?:sales|repair|models|works|company|faq|contact|privacy|404)(?:/[^/]+)?/(style(?:-base-20260824)?\.css)$ /$1 [L]
+
+# Root asset directories used by the static site.
+RewriteRule ^(?:sales|repair|models|works|company|faq|contact|privacy|404)(?:/[^/]+)?/((?:js|images|css|fonts)/.+)$ /$1 [L]
+
+# If a document-relative legacy .html navigation link is clicked from a
+# clean URL, redirect it to the canonical clean URL instead of nesting it.
+RewriteRule ^(?:sales|repair|models|works|company|faq|contact|privacy|404)(?:/[^/]+)?/index\.html$ / [R=302,L]
+RewriteRule ^(?:sales|repair|models|works|company|faq|contact|privacy|404)(?:/[^/]+)?/(sales|repair|models|works|company|faq|contact|privacy|404)\.html$ /$1/ [R=302,L]
+RewriteRule ^(?:sales|repair|models|works|company|faq|contact|privacy|404)(?:/[^/]+)?/works-handa-amos-rexx\.html$ /works/handa-amos-rexx/ [R=302,L]
+RewriteRule ^(?:sales|repair|models|works|company|faq|contact|privacy|404)(?:/[^/]+)?/works-anjo-repair\.html$ /works/anjo-repair/ [R=302,L]
+RewriteRule ^(?:sales|repair|models|works|company|faq|contact|privacy|404)(?:/[^/]+)?/works-yokkaichi-repair\.html$ /works/yokkaichi-repair/ [R=302,L]
 
 # Preserve clean URLs while serving static pages.
 RewriteRule ^sales/?$ sales.html [L]
