@@ -1,0 +1,212 @@
+name: XServer access report
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/xserver-access-report.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  access-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY" || (echo "SSH_PRIVATE_KEY is missing" && exit 1)
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+          for i in 1 2 3 4 5; do
+            if ssh-keyscan -T 15 -p 10022 sv16618.xserver.jp >> ~/.ssh/known_hosts 2>/dev/null; then
+              break
+            fi
+            if [ "$i" -eq 5 ]; then
+              echo "Could not obtain XServer SSH host key"
+              exit 1
+            fi
+            sleep 5
+          done
+          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Aggregate XServer access logs without exporting IP addresses
+        run: |
+          set -eu
+          SSH_CMD="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+
+          $SSH_CMD "$REMOTE" 'bash -s' <<'REMOTE_SCRIPT'
+          set -eu
+          LOGDIR="/home/ayuto/ayuto.xsrv.jp/log"
+          TMPDIR_REPORT=$(mktemp -d /tmp/fukuzaki-access-report.XXXXXX)
+          trap 'rm -rf "$TMPDIR_REPORT"' EXIT HUP INT TERM
+
+          echo "ACCESS_REPORT_BEGIN"
+          echo "DOMAIN=ayuto.xsrv.jp"
+          echo "LOG_DIRECTORY=$LOGDIR"
+
+          if [ ! -d "$LOGDIR" ]; then
+            echo "LOG_STATUS=NO_LOG_DIRECTORY"
+            echo "ACCESS_REPORT_END"
+            exit 0
+          fi
+
+          set +e
+          FILES=$(find "$LOGDIR" -maxdepth 1 -type f -name 'ayuto.xsrv.jp.access_log_*' -print | sort)
+          set -e
+
+          if [ -z "$FILES" ]; then
+            echo "LOG_STATUS=NO_SAVED_ACCESS_LOGS"
+            echo "LOG_FILES=0"
+            echo "ACCESS_REPORT_END"
+            exit 0
+          fi
+
+          : > "$TMPDIR_REPORT/daily"
+          : > "$TMPDIR_REPORT/pages"
+          : > "$TMPDIR_REPORT/devices"
+          : > "$TMPDIR_REPORT/referrers"
+          : > "$TMPDIR_REPORT/visitors"
+          : > "$TMPDIR_REPORT/summary"
+
+          stream_logs() {
+            printf '%s\n' "$FILES" | while IFS= read -r f; do
+              case "$f" in
+                *.gz) gzip -cd -- "$f" ;;
+                *) cat -- "$f" ;;
+              esac
+            done
+          }
+
+          stream_logs | awk -F'"' -v tmp="$TMPDIR_REPORT" '
+            BEGIN {
+              months["Jan"]="01"; months["Feb"]="02"; months["Mar"]="03"; months["Apr"]="04";
+              months["May"]="05"; months["Jun"]="06"; months["Jul"]="07"; months["Aug"]="08";
+              months["Sep"]="09"; months["Oct"]="10"; months["Nov"]="11"; months["Dec"]="12";
+              total=0; humanpv=0; bots=0; e4=0; e5=0;
+            }
+            {
+              total++;
+              prefix=$1;
+              request=$2;
+              meta=$3;
+              ref=$4;
+              ua=$6;
+
+              gsub(/^[[:space:]]+/, "", meta);
+              split(meta, ms, /[[:space:]]+/);
+              status=ms[1]+0;
+              if (status >= 400 && status < 500) e4++;
+              if (status >= 500 && status < 600) e5++;
+
+              ua_l=tolower(ua);
+              isbot=(ua_l ~ /(bot|crawler|spider|slurp|bingpreview|curl|wget|python-requests|github|monitor|uptime|headless|facebookexternalhit)/);
+              if (isbot) bots++;
+
+              split(request, rq, /[[:space:]]+/);
+              method=rq[1];
+              uri=rq[2];
+              if (method != "GET" || uri == "") next;
+
+              path=uri;
+              sub(/\?.*$/, "", path);
+              sub(/#.*$/, "", path);
+              if (path == "/index.html" || path == "/index" || path == "") path="/";
+              else if (path ~ /\.html$/) sub(/\.html$/, "", path);
+              if (path != "/") sub(/\/$/, "", path);
+
+              isasset=(path ~ /\.(css|js|mjs|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|eot|map|xml|txt|pdf|zip)$/);
+              isinternal=(path ~ /^\/git-test(\/|$)/ || path ~ /^\/\.well-known(\/|$)/);
+              if (isbot || isasset || isinternal || status < 200 || status >= 400) next;
+
+              humanpv++;
+              print path >> (tmp "/pages");
+
+              split(prefix, p, /[[:space:]]+/);
+              ip=p[2];
+              rawdate=p[5];
+              sub(/^\[/, "", rawdate);
+              split(rawdate, dt, ":");
+              split(dt[1], d, "/");
+              if (d[1] != "" && months[d[2]] != "" && d[3] != "") {
+                day=sprintf("%s-%s-%02d", d[3], months[d[2]], d[1]);
+                print day >> (tmp "/daily");
+              }
+
+              if (ip != "") print ip "\t" ua >> (tmp "/visitors");
+
+              if (ua_l ~ /(ipad|tablet|kindle|silk)/) device="Tablet";
+              else if (ua_l ~ /(iphone|ipod|android.*mobile|mobile)/) device="Mobile";
+              else if (ua_l ~ /(windows|macintosh|x11|linux)/) device="Desktop";
+              else device="Other";
+              print device >> (tmp "/devices");
+
+              ref_l=tolower(ref);
+              if (ref != "-" && ref != "" && ref_l !~ /^https?:\/\/(www\.)?ayuto\.xsrv\.jp([\/:]|$)/) {
+                host=ref_l;
+                sub(/^https?:\/\//, "", host);
+                split(host, rh, "/");
+                host=rh[1];
+                sub(/^www\./, "", host);
+                sub(/:[0-9]+$/, "", host);
+                if (host != "") print host >> (tmp "/referrers");
+              }
+            }
+            END {
+              print "TOTAL_REQUESTS=" total > (tmp "/summary");
+              print "HUMAN_PAGEVIEWS=" humanpv >> (tmp "/summary");
+              print "BOT_REQUESTS=" bots >> (tmp "/summary");
+              print "HTTP_4XX=" e4 >> (tmp "/summary");
+              print "HTTP_5XX=" e5 >> (tmp "/summary");
+            }
+          '
+
+          echo "LOG_STATUS=OK"
+          echo "LOG_FILES=$(printf '%s\n' "$FILES" | wc -l | tr -d ' ')"
+          cat "$TMPDIR_REPORT/summary"
+
+          UNIQUE_VISITORS=$(sort -u "$TMPDIR_REPORT/visitors" | wc -l | tr -d ' ')
+          echo "EST_UNIQUE_VISITORS=$UNIQUE_VISITORS"
+
+          FIRST_DAY=$(sort "$TMPDIR_REPORT/daily" | head -n 1 || true)
+          LAST_DAY=$(sort "$TMPDIR_REPORT/daily" | tail -n 1 || true)
+          echo "PERIOD_FIRST=${FIRST_DAY:-unknown}"
+          echo "PERIOD_LAST=${LAST_DAY:-unknown}"
+
+          echo "DAILY_BEGIN"
+          if [ -s "$TMPDIR_REPORT/daily" ]; then
+            sort "$TMPDIR_REPORT/daily" | uniq -c | awk '{print "DAILY|" $2 "|" $1}'
+          fi
+          echo "DAILY_END"
+
+          echo "DEVICES_BEGIN"
+          if [ -s "$TMPDIR_REPORT/devices" ]; then
+            sort "$TMPDIR_REPORT/devices" | uniq -c | sort -nr | awk '{count=$1; $1=""; sub(/^ /, ""); print "DEVICE|" $0 "|" count}'
+          fi
+          echo "DEVICES_END"
+
+          echo "TOP_PAGES_BEGIN"
+          if [ -s "$TMPDIR_REPORT/pages" ]; then
+            sort "$TMPDIR_REPORT/pages" | uniq -c | sort -nr | head -n 12 | awk '{count=$1; $1=""; sub(/^ /, ""); print "PAGE|" count "|" $0}'
+          fi
+          echo "TOP_PAGES_END"
+
+          echo "TOP_REFERRERS_BEGIN"
+          if [ -s "$TMPDIR_REPORT/referrers" ]; then
+            sort "$TMPDIR_REPORT/referrers" | uniq -c | sort -nr | head -n 12 | awk '{count=$1; $1=""; sub(/^ /, ""); print "REFERRER|" count "|" $0}'
+          fi
+          echo "TOP_REFERRERS_END"
+
+          echo "PRIVACY=Raw IP addresses and raw access-log lines were not printed or copied to GitHub."
+          echo "ACCESS_REPORT_END"
+          REMOTE_SCRIPT
