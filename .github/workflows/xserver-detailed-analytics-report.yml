@@ -1,0 +1,161 @@
+name: XServer detailed analytics report
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - safe-js-analytics-20260827
+    paths:
+      - '.github/workflows/xserver-detailed-analytics-report.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  detailed-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Aggregate detailed analytics on XServer
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+          REMOTE="ayuto@sv16618.xserver.jp"
+
+          $SSH "$REMOTE" 'bash -s' <<'REMOTE_SCRIPT'
+          set -eu
+          ROOT="/home/ayuto/ayuto.xsrv.jp"
+          ANALYTICS="$ROOT/analytics-data"
+          AWDIR="$ROOT/awstats"
+
+          echo "DETAILED_REPORT_BEGIN"
+          echo "DOMAIN=ayuto.xsrv.jp"
+          echo "REPORT_TIME_JST=$(TZ=Asia/Tokyo date '+%Y-%m-%dT%H:%M:%S%z')"
+
+          DATA=$(find "$AWDIR" -maxdepth 1 -type f -name 'awstats[0-9]*.ayuto.xsrv.jp.txt' -print 2>/dev/null | sort | tail -n 1 || true)
+          if [ -n "$DATA" ]; then
+            echo "AWSTATS_STATUS=OK"
+            awk '$1=="LastUpdate"{print "AWSTATS_LAST_UPDATE=" $2; exit}' "$DATA"
+            awk '$1=="TotalVisits"{print "AWSTATS_VISITS=" $2; exit}' "$DATA"
+            awk '$1=="TotalUnique"{print "AWSTATS_UNIQUE_CONNECTIONS=" $2; exit}' "$DATA"
+            awk '$1=="BEGIN_DAY"{inside=1;next} $1=="END_DAY"{inside=0;next} inside{n+=$2} END{print "AWSTATS_PAGEVIEWS=" n+0}' "$DATA"
+          else
+            echo "AWSTATS_STATUS=NO_DATA"
+          fi
+
+          FILES=$(find "$ANALYTICS" -maxdepth 1 -type f -name 'events-*.tsv' -print 2>/dev/null | sort || true)
+          if [ -z "$FILES" ]; then
+            echo "CUSTOM_STATUS=NO_DATA"
+            echo "PRIVACY=Aggregate output only. No raw IP, full User-Agent, persistent client ID, names, phone numbers, emails, or individual event rows are printed."
+            echo "DETAILED_REPORT_END"
+            exit 0
+          fi
+
+          TMP=$(mktemp -d /tmp/fukuzaki-detailed.XXXXXX)
+          trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+          cat $FILES | awk -F '\t' 'NF==29 && $20 != "workflow-production-test" {print}' > "$TMP/events"
+
+          if [ ! -s "$TMP/events" ]; then
+            echo "CUSTOM_STATUS=NO_REAL_EVENTS"
+            echo "PRIVACY=Aggregate output only."
+            echo "DETAILED_REPORT_END"
+            exit 0
+          fi
+
+          echo "CUSTOM_STATUS=OK"
+          awk -F '\t' '
+            function day(ts){return substr(ts,1,10)}
+            BEGIN{pv=perf=click=eng=first=firstday=sessions=0}
+            {
+              if(firstTs=="" || $1<firstTs) firstTs=$1;
+              if(lastTs=="" || $1>lastTs) lastTs=$1;
+              if($2=="pageview"){
+                pv++;
+                if($17==1) first++;
+                if($18==1) firstday++;
+                if($19==1) sessions++;
+                d=day($1); dpv[d]++;
+                if($18==1) dfirst[d]++;
+                if($19==1) dsess[d]++;
+                pages[$3]++;
+                devices[$5]++;
+                os[$6]++;
+                browsers[$7]++;
+                screens[$8]++;
+                orientations[$9]++;
+                dprs[$10]++;
+                memory[$11]++;
+                cpu[$12]++;
+                touch[$13]++;
+                langs[$14]++;
+                tz[$15]++;
+                net[$16]++;
+                refs[$4]++;
+                if($20!="") utms[$20]++;
+                if($21!="") utmm[$21]++;
+                if($22!="") utmc[$22]++;
+              } else if($2=="performance") {
+                perf++;
+                ttfb[$24]++; dom[$25]++; load[$26]++; nav[$27]++;
+              } else if($2=="click") {
+                click++; targets[$23]++;
+              } else if($2=="engagement") {
+                eng++; times[$28]++; scroll[$29]++;
+              }
+            }
+            END{
+              print "CUSTOM_PERIOD_FIRST=" firstTs;
+              print "CUSTOM_PERIOD_LAST=" lastTs;
+              print "CUSTOM_PAGEVIEWS=" pv;
+              print "CUSTOM_FIRST_EVER_BROWSERS=" first;
+              print "CUSTOM_BROWSER_DAY_FIRSTS=" firstday;
+              print "CUSTOM_SESSIONS=" sessions;
+              print "CUSTOM_PERFORMANCE_EVENTS=" perf;
+              print "CUSTOM_CLICK_EVENTS=" click;
+              print "CUSTOM_ENGAGEMENT_EVENTS=" eng;
+
+              print "CUSTOM_DAILY_BEGIN";
+              for(k in dpv) print "CUSTOM_DAILY|" k "|pageviews=" dpv[k] "|browser_day_firsts=" dfirst[k]+0 "|sessions=" dsess[k]+0;
+              print "CUSTOM_DAILY_END";
+
+              print "CUSTOM_PAGES_BEGIN"; for(k in pages) print "CUSTOM_PAGE|" pages[k] "|" k; print "CUSTOM_PAGES_END";
+              print "CUSTOM_DEVICES_BEGIN"; for(k in devices) print "CUSTOM_DEVICE|" k "|" devices[k]; print "CUSTOM_DEVICES_END";
+              print "CUSTOM_OS_BEGIN"; for(k in os) print "CUSTOM_OS|" k "|" os[k]; print "CUSTOM_OS_END";
+              print "CUSTOM_BROWSERS_BEGIN"; for(k in browsers) print "CUSTOM_BROWSER|" k "|" browsers[k]; print "CUSTOM_BROWSERS_END";
+              print "CUSTOM_SCREENS_BEGIN"; for(k in screens) print "CUSTOM_SCREEN|" k "|" screens[k]; print "CUSTOM_SCREENS_END";
+              print "CUSTOM_ORIENTATIONS_BEGIN"; for(k in orientations) print "CUSTOM_ORIENTATION|" k "|" orientations[k]; print "CUSTOM_ORIENTATIONS_END";
+              print "CUSTOM_DPR_BEGIN"; for(k in dprs) print "CUSTOM_DPR|" k "|" dprs[k]; print "CUSTOM_DPR_END";
+              print "CUSTOM_MEMORY_BEGIN"; for(k in memory) print "CUSTOM_MEMORY|" k "|" memory[k]; print "CUSTOM_MEMORY_END";
+              print "CUSTOM_CPU_BEGIN"; for(k in cpu) print "CUSTOM_CPU|" k "|" cpu[k]; print "CUSTOM_CPU_END";
+              print "CUSTOM_TOUCH_BEGIN"; for(k in touch) print "CUSTOM_TOUCH|" k "|" touch[k]; print "CUSTOM_TOUCH_END";
+              print "CUSTOM_LANG_BEGIN"; for(k in langs) print "CUSTOM_LANG|" k "|" langs[k]; print "CUSTOM_LANG_END";
+              print "CUSTOM_TIMEZONE_BEGIN"; for(k in tz) print "CUSTOM_TIMEZONE|" k "|" tz[k]; print "CUSTOM_TIMEZONE_END";
+              print "CUSTOM_NETWORK_BEGIN"; for(k in net) print "CUSTOM_NETWORK|" k "|" net[k]; print "CUSTOM_NETWORK_END";
+              print "CUSTOM_REFERRERS_BEGIN"; for(k in refs) print "CUSTOM_REFERRER|" k "|" refs[k]; print "CUSTOM_REFERRERS_END";
+              print "CUSTOM_UTM_SOURCE_BEGIN"; for(k in utms) print "CUSTOM_UTM_SOURCE|" k "|" utms[k]; print "CUSTOM_UTM_SOURCE_END";
+              print "CUSTOM_UTM_MEDIUM_BEGIN"; for(k in utmm) print "CUSTOM_UTM_MEDIUM|" k "|" utmm[k]; print "CUSTOM_UTM_MEDIUM_END";
+              print "CUSTOM_UTM_CAMPAIGN_BEGIN"; for(k in utmc) print "CUSTOM_UTM_CAMPAIGN|" k "|" utmc[k]; print "CUSTOM_UTM_CAMPAIGN_END";
+              print "CUSTOM_CTA_BEGIN"; for(k in targets) print "CUSTOM_CTA|" k "|" targets[k]; print "CUSTOM_CTA_END";
+              print "CUSTOM_TTFB_BEGIN"; for(k in ttfb) print "CUSTOM_TTFB|" k "|" ttfb[k]; print "CUSTOM_TTFB_END";
+              print "CUSTOM_DOM_BEGIN"; for(k in dom) print "CUSTOM_DOM|" k "|" dom[k]; print "CUSTOM_DOM_END";
+              print "CUSTOM_LOAD_BEGIN"; for(k in load) print "CUSTOM_LOAD|" k "|" load[k]; print "CUSTOM_LOAD_END";
+              print "CUSTOM_NAV_BEGIN"; for(k in nav) print "CUSTOM_NAV|" k "|" nav[k]; print "CUSTOM_NAV_END";
+              print "CUSTOM_TIME_BEGIN"; for(k in times) print "CUSTOM_TIME|" k "|" times[k]; print "CUSTOM_TIME_END";
+              print "CUSTOM_SCROLL_BEGIN"; for(k in scroll) print "CUSTOM_SCROLL|" k "|" scroll[k]; print "CUSTOM_SCROLL_END";
+            }
+          ' "$TMP/events"
+
+          echo "PRIVACY=Aggregate output only. No raw IP, full User-Agent, persistent client ID, names, phone numbers, emails, or individual event rows are printed or copied to GitHub."
+          echo "DETAILED_REPORT_END"
+          REMOTE_SCRIPT
