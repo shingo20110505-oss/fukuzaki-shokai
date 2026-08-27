@@ -48,6 +48,7 @@ jobs:
           set -eu
           ROOT="/home/ayuto/ayuto.xsrv.jp"
           LOGDIR="$ROOT/log"
+          CONF="$ROOT/awstats/awstats.ayuto.xsrv.jp.conf"
           echo "DISCOVERY_BEGIN"
           echo "ROOT_EXISTS=$([ -d "$ROOT" ] && echo yes || echo no)"
           echo "LOGDIR_EXISTS=$([ -d "$LOGDIR" ] && echo yes || echo no)"
@@ -55,6 +56,19 @@ jobs:
             echo "LOGDIR_FILE_COUNT=$(find "$LOGDIR" -maxdepth 1 -type f | wc -l | tr -d ' ')"
             echo "ACCESS_LOG_FILE_COUNT=$(find "$LOGDIR" -maxdepth 1 -type f -name '*access_log*' | wc -l | tr -d ' ')"
           fi
+
+          echo "AWSTATS_CONF_EXISTS=$([ -f "$CONF" ] && echo yes || echo no)"
+          if [ -r "$CONF" ]; then
+            LOGFILE_SETTING=$(awk -F= '/^[[:space:]]*LogFile[[:space:]]*=/{sub(/^[^=]*=/, ""); gsub(/^[[:space:]]*\"|\"[[:space:]]*$/, ""); print; exit}' "$CONF")
+            LOGFORMAT_SETTING=$(awk -F= '/^[[:space:]]*LogFormat[[:space:]]*=/{sub(/^[^=]*=/, ""); gsub(/^[[:space:]]*\"|\"[[:space:]]*$/, ""); print; exit}' "$CONF")
+            printf 'AWSTATS_LOGFILE_SETTING=%s\n' "$LOGFILE_SETTING"
+            printf 'AWSTATS_LOGFORMAT_SETTING=%s\n' "$LOGFORMAT_SETTING"
+          fi
+
+          echo "HOME_LOG_CANDIDATES_BEGIN"
+          find /home/ayuto -maxdepth 5 -type f \( -iname '*access_log*' -o -iname 'access.log*' \) -printf '%p|%s bytes\n' 2>/dev/null | head -n 100 || true
+          echo "HOME_LOG_CANDIDATES_END"
+
           echo "CANDIDATES_BEGIN"
           find "$ROOT" -maxdepth 5 -type f \( -iname '*access_log*' -o -iname '*awstats*' -o -iname '*webalizer*' -o -iname '*analytics*' \) -printf '%P|%s bytes\n' 2>/dev/null | head -n 50 || true
           echo "CANDIDATES_END"
