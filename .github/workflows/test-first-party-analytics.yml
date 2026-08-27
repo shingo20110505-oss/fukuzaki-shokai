@@ -1,0 +1,140 @@
+name: Test first-party analytics safely
+
+on:
+  push:
+    branches:
+      - safe-js-analytics-20260827
+    paths:
+      - '.github/workflows/test-first-party-analytics.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  test-analytics:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout analytics branch
+        uses: actions/checkout@v4
+        with:
+          ref: safe-js-analytics-20260827
+          fetch-depth: 0
+
+      - name: Inject isolated analytics loader and update privacy text
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+          tag = '<script src="js/analytics.js?v=20260827a" defer></script>'
+          changed = []
+          for p in Path('.').glob('*.html'):
+              text = p.read_text(encoding='utf-8')
+              if 'js/main.js' not in text:
+                  continue
+              if 'js/analytics.js' not in text:
+                  text = text.replace('</body>', f'{tag}\n</body>')
+                  p.write_text(text, encoding='utf-8')
+                  changed.append(str(p))
+
+          p = Path('privacy.html')
+          text = p.read_text(encoding='utf-8')
+          old_access = 'このサイトでは、Google Analyticsなどのアクセス解析サービス、広告配信、サイト内の問い合わせフォームを使用していません。サーバーの安全管理や障害調査のため、XServer側でIPアドレス、閲覧日時、ブラウザ情報などのアクセスログが記録される場合があります。'
+          new_access = 'このサイトでは、Google Analyticsなど外部のアクセス解析サービスや広告配信は使用していません。サイト改善のため、フクザキ商会が管理するXServer内の自前アクセス解析により、閲覧ページ、閲覧日時、参照元、端末種別、OS・ブラウザ種別、画面区分、通信環境の区分、表示速度の区分、スクロール深度、滞在時間の区分、電話・LINEなどのリンク操作、初回・再訪・セッションの区分を記録する場合があります。解析データはXServer内で管理し、解析用に生のIPアドレス、完全なUser-Agent文字列、氏名・電話番号などの入力情報を保存しません。なお、XServerの通常のサーバーログには安全管理や障害調査のためIPアドレス等が記録される場合があります。'
+          old_cookie = 'このサイトは、広告や行動追跡を目的としたCookieを使用していません。表示や操作に必要な範囲でブラウザの機能を利用する場合があります。'
+          new_cookie = 'このサイトは、広告配信や第三者による横断的な行動追跡を目的としたCookieを使用していません。自前アクセス解析では、同じブラウザでの初回・再訪、当日初回、約30分単位のセッションを判定するため、ブラウザのlocalStorageを利用します。個人を直接識別する氏名・電話番号・メールアドレス等は保存しません。ブラウザの保存データを削除した場合やプライベートブラウズ等では、新しい利用として数えられる場合があります。'
+          if old_access not in text or old_cookie not in text:
+              raise SystemExit('privacy source text not found; refusing unsafe patch')
+          text = text.replace(old_access, new_access).replace(old_cookie, new_cookie)
+          p.write_text(text, encoding='utf-8')
+          print('patched html:', ', '.join(changed))
+          PY
+
+      - name: Verify source isolation and syntax
+        run: |
+          set -eu
+          git show origin/main:js/main.js > /tmp/main-main.js
+          cmp -s /tmp/main-main.js js/main.js || (echo 'ERROR: existing js/main.js changed' && exit 1)
+          node --check js/analytics.js
+          php -l analytics.php
+          count=$(grep -l 'js/analytics.js?v=20260827a' ./*.html | wc -l | tr -d ' ')
+          test "$count" -ge 9 || (echo "ERROR: analytics loader found in only $count pages" && exit 1)
+          grep -q 'XServer内の自前アクセス解析' privacy.html
+          grep -q 'localStorage' privacy.html
+          echo "LOCAL_VERIFICATION=OK pages=$count"
+
+      - name: Commit tested HTML/privacy source back to branch
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ./*.html
+          if git diff --cached --quiet; then
+            echo 'No HTML changes to commit'
+          else
+            git commit -m 'Wire isolated analytics into site pages'
+            git push origin HEAD:safe-js-analytics-20260827
+          fi
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+          for i in 1 2 3 4 5; do
+            if ssh-keyscan -T 15 -p 10022 sv16618.xserver.jp >> ~/.ssh/known_hosts 2>/dev/null; then break; fi
+            test "$i" -lt 5 || exit 1
+            sleep 5
+          done
+          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Backup and deploy only analytics-related files to git-test
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          TEST="/home/ayuto/ayuto.xsrv.jp/public_html/git-test"
+          BACKUP="/home/ayuto/deploy-backups/pre-js-analytics-test-${GITHUB_RUN_ID}.tar.gz"
+          $SSH "$REMOTE" "mkdir -p /home/ayuto/deploy-backups /home/ayuto/ayuto.xsrv.jp/analytics-data-test '$TEST/js' && chmod 700 /home/ayuto/ayuto.xsrv.jp/analytics-data-test && tar -czf '$BACKUP' -C '$TEST' . && test -s '$BACKUP'"
+          rsync -az -e "$SSH" ./*.html "$REMOTE:$TEST/"
+          rsync -az -e "$SSH" js/analytics.js "$REMOTE:$TEST/js/analytics.js"
+          rsync -az -e "$SSH" analytics.php "$REMOTE:$TEST/analytics.php"
+          $SSH "$REMOTE" "test -s '$TEST/js/analytics.js' && test -s '$TEST/analytics.php' && grep -q 'js/analytics.js?v=20260827a' '$TEST/index.html' && grep -q 'XServer内の自前アクセス解析' '$TEST/privacy.html' && printf 'GIT_TEST_FILES=OK\nBACKUP=%s\n' '$BACKUP'"
+
+      - name: Public git-test verification and write test
+        run: |
+          set -eu
+          base='https://ayuto.xsrv.jp/git-test'
+          curl -fsS --retry 3 "$base/" | grep -q 'js/analytics.js?v=20260827a'
+          curl -fsS --retry 3 "$base/js/analytics.js?v=20260827a" | grep -q "send('pageview')"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$base/analytics.php" \
+            -H 'Origin: https://ayuto.xsrv.jp' \
+            -H 'Content-Type: application/json' \
+            --data '{"v":2,"event":"pageview","path":"/git-test/","ref":"direct","device":"desktop","os":"linux","browser":"chrome","screen":"large","orientation":"landscape","dpr":"1","memory":"unknown","cpu":"unknown","touch":"no-touch","language":"ja-jp","timezone":"Asia/Tokyo","network":"unknown","firstEver":1,"firstToday":1,"newSession":1,"utmSource":"workflow-test","utmMedium":"internal","utmCampaign":"safe-test"}')
+          test "$status" = '204' || (echo "analytics POST returned $status" && exit 1)
+          echo 'PUBLIC_GIT_TEST=OK'
+
+      - name: Verify test record contains no raw visitor identifiers
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          $SSH "$REMOTE" 'python3 - <<'"'"'PY'"'"'
+          from pathlib import Path
+          files = sorted(Path("/home/ayuto/ayuto.xsrv.jp/analytics-data-test").glob("events-*.tsv"))
+          if not files:
+              raise SystemExit("no test analytics file")
+          line = files[-1].read_text(encoding="utf-8").splitlines()[-1]
+          fields = line.split("\t")
+          if len(fields) != 29:
+              raise SystemExit(f"unexpected field count: {len(fields)}")
+          if "workflow-test" not in line:
+              raise SystemExit("test record missing")
+          print("ANALYTICS_TEST_RECORD=OK fields=29")
+          PY'
