@@ -1,0 +1,115 @@
+name: Deploy first-party analytics safely
+
+on:
+  push:
+    branches:
+      - safe-js-analytics-20260827
+    paths:
+      - '.github/workflows/deploy-first-party-analytics-production.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tested analytics branch
+        uses: actions/checkout@v4
+        with:
+          ref: safe-js-analytics-20260827
+          fetch-depth: 0
+
+      - name: Verify exact safe source shape
+        run: |
+          set -eu
+          git show origin/main:js/main.js > /tmp/main-main.js
+          cmp -s /tmp/main-main.js js/main.js || (echo 'ERROR: js/main.js changed' && exit 1)
+          node --check js/analytics.js
+          php -l analytics.php
+          count=$(grep -l 'js/analytics.js?v=20260827a' ./*.html | wc -l | tr -d ' ')
+          test "$count" -ge 12 || (echo "ERROR: loader only in $count HTML pages" && exit 1)
+          grep -q 'XServer内の自前アクセス解析' privacy.html
+          echo "SOURCE_VERIFY=OK pages=$count"
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+          for i in 1 2 3 4 5; do
+            if ssh-keyscan -T 15 -p 10022 sv16618.xserver.jp >> ~/.ssh/known_hosts 2>/dev/null; then break; fi
+            test "$i" -lt 5 || exit 1
+            sleep 5
+          done
+          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Backup production and deploy only analytics-related files
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          ROOT="/home/ayuto/ayuto.xsrv.jp"
+          TARGET="$ROOT/public_html"
+          BACKUP="/home/ayuto/deploy-backups/pre-first-party-analytics-${GITHUB_RUN_ID}.tar.gz"
+          STAGE="/home/ayuto/deploy-staging/first-party-analytics-${GITHUB_RUN_ID}"
+
+          $SSH "$REMOTE" "mkdir -p /home/ayuto/deploy-backups /home/ayuto/deploy-staging '$ROOT/analytics-data' '$STAGE/js' && chmod 700 '$ROOT/analytics-data' && tar -czf '$BACKUP' -C '$ROOT' public_html && test -s '$BACKUP'"
+
+          rsync -az -e "$SSH" ./*.html "$REMOTE:$STAGE/"
+          rsync -az -e "$SSH" js/analytics.js "$REMOTE:$STAGE/js/analytics.js"
+          rsync -az -e "$SSH" analytics.php "$REMOTE:$STAGE/analytics.php"
+
+          $SSH "$REMOTE" "test -s '$STAGE/index.html' && test -s '$STAGE/js/analytics.js' && test -s '$STAGE/analytics.php' && grep -q 'js/analytics.js?v=20260827a' '$STAGE/index.html' && grep -q 'XServer内の自前アクセス解析' '$STAGE/privacy.html'"
+
+          before_main=$($SSH "$REMOTE" "sha256sum '$TARGET/js/main.js' | awk '{print \$1}'")
+
+          $SSH "$REMOTE" "cp '$STAGE/'*.html '$TARGET/' && cp '$STAGE/js/analytics.js' '$TARGET/js/analytics.js' && cp '$STAGE/analytics.php' '$TARGET/analytics.php'"
+
+          after_main=$($SSH "$REMOTE" "sha256sum '$TARGET/js/main.js' | awk '{print \$1}'")
+          test "$before_main" = "$after_main" || (echo 'ERROR: production main.js changed' && exit 1)
+          $SSH "$REMOTE" "test -s '$TARGET/index.html' && test -s '$TARGET/js/analytics.js' && test -s '$TARGET/analytics.php' && grep -q 'js/analytics.js?v=20260827a' '$TARGET/index.html' && grep -q 'XServer内の自前アクセス解析' '$TARGET/privacy.html' && printf 'PRODUCTION_FILES=OK\nBACKUP=%s\n' '$BACKUP'"
+          $SSH "$REMOTE" "rm -rf '$STAGE'"
+
+      - name: Verify live website and analytics write
+        run: |
+          set -eu
+          base='https://ayuto.xsrv.jp'
+          curl -fsS --retry 4 --retry-delay 2 "$base/" | grep -q 'js/analytics.js?v=20260827a'
+          curl -fsS --retry 4 --retry-delay 2 "$base/js/analytics.js?v=20260827a" | grep -q "send('pageview')"
+          curl -fsS --retry 4 --retry-delay 2 "$base/privacy.html" | grep -q 'XServer内の自前アクセス解析'
+          curl -fsSI --retry 4 --retry-delay 2 "$base/style.css?v=20260824e" | grep -Eq '^HTTP/.* 200'
+          curl -fsSI --retry 4 --retry-delay 2 "$base/js/main.js?v=20260824e" | grep -Eq '^HTTP/.* 200'
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$base/analytics.php" \
+            -H 'Origin: https://ayuto.xsrv.jp' \
+            -H 'Content-Type: application/json' \
+            --data '{"v":2,"event":"pageview","path":"/","ref":"direct","device":"desktop","os":"linux","browser":"chrome","screen":"large","orientation":"landscape","dpr":"1","memory":"unknown","cpu":"unknown","touch":"no-touch","language":"ja-jp","timezone":"Asia/Tokyo","network":"unknown","firstEver":0,"firstToday":0,"newSession":1,"utmSource":"workflow-production-test","utmMedium":"internal","utmCampaign":"safe-production-test"}')
+          test "$status" = '204' || (echo "production analytics POST returned $status" && exit 1)
+          echo 'LIVE_HTTP_VERIFY=OK'
+
+      - name: Verify production record and privacy boundary
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          $SSH "$REMOTE" 'python3 - <<'"'"'PY'"'"'
+          from pathlib import Path
+          files = sorted(Path("/home/ayuto/ayuto.xsrv.jp/analytics-data").glob("events-*.tsv"))
+          if not files:
+              raise SystemExit("no production analytics file")
+          line = files[-1].read_text(encoding="utf-8").splitlines()[-1]
+          fields = line.split("\t")
+          if len(fields) != 29:
+              raise SystemExit(f"unexpected field count: {len(fields)}")
+          if "workflow-production-test" not in line:
+              raise SystemExit("production test record missing")
+          print("PRODUCTION_ANALYTICS_RECORD=OK fields=29")
+          print("PRIVACY_BOUNDARY=No raw IP, full User-Agent, name, phone, email, or persistent unique client ID stored by custom analytics")
+          PY'
