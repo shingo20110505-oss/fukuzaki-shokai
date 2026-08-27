@@ -3,10 +3,12 @@ name: XServer AWStats access report
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 21 * * *'
+    - cron: '45 20 * * *'
   push:
     branches:
       - main
+    paths:
+      - '.github/workflows/xserver-access-report.yml'
 
 permissions:
   contents: read
