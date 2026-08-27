@@ -41,7 +41,7 @@ jobs:
           sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Aggregate XServer AWStats without exporting visitor IP addresses
+      - name: Aggregate XServer AWStats and estimate device signatures privately
         run: |
           set -eu
           SSH_CMD="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30"
@@ -50,8 +50,7 @@ jobs:
           $SSH_CMD "$REMOTE" 'bash -s' <<'REMOTE_SCRIPT'
           set -eu
           AWDIR="/home/ayuto/ayuto.xsrv.jp/awstats"
-          TMPDIR_REPORT=$(mktemp -d /tmp/fukuzaki-awstats-report.XXXXXX)
-          trap 'rm -rf "$TMPDIR_REPORT"' EXIT HUP INT TERM
+          RAWLOG="/home/userlog/nginx/ayuto/ayuto.xsrv.jp.access_log"
 
           echo "ACCESS_REPORT_BEGIN"
           echo "SOURCE=AWSTATS"
@@ -128,6 +127,54 @@ jobs:
           ' "$DATA"
           echo "DEVICES_END"
 
+          echo "DEVICE_SIGNATURES_BEGIN"
+          if [ -r "$RAWLOG" ]; then
+            echo "DEVICE_SIGNATURE_STATUS=OK"
+            awk -F'"' '
+              function count_array(a,    k,n) { n=0; for (k in a) n++; return n }
+              {
+                prefix=$1; request=$2; meta=$3; ua=$6;
+                ua_l=tolower(ua);
+                isbot=(ua_l ~ /(bot|crawler|spider|slurp|bingpreview|curl|wget|python-requests|github|monitor|uptime|headless|facebookexternalhit)/);
+                if (isbot || ua == "" || ua == "-") next;
+
+                split(request, rq, /[[:space:]]+/);
+                if (rq[1] != "GET") next;
+
+                gsub(/^[[:space:]]+/, "", meta);
+                split(meta, ms, /[[:space:]]+/);
+                status=ms[1]+0;
+                if (status < 200 || status >= 400) next;
+
+                split(prefix, p, /[[:space:]]+/);
+                ip=p[2];
+                if (ip == "") next;
+
+                sig=ip SUBSEP ua;
+                signatures[sig]=1;
+                ips[ip]=1;
+                uas[ua]=1;
+
+                if (ua_l ~ /(ipad|tablet|kindle|silk)/) tablet[sig]=1;
+                else if (ua_l ~ /(iphone|ipod|android.*mobile|mobile)/) mobile[sig]=1;
+                else if (ua_l ~ /(windows|macintosh|x11|linux|cros)/) desktop[sig]=1;
+                else other[sig]=1;
+              }
+              END {
+                print "EST_DEVICE_SIGNATURES_IP_UA=" count_array(signatures);
+                print "EST_DISTINCT_IPS_RAWLOG=" count_array(ips);
+                print "EST_DISTINCT_UA_PROFILES=" count_array(uas);
+                print "DEVICE_SIGNATURE|Mobile|" count_array(mobile);
+                print "DEVICE_SIGNATURE|Tablet|" count_array(tablet);
+                print "DEVICE_SIGNATURE|Desktop|" count_array(desktop);
+                print "DEVICE_SIGNATURE|Other|" count_array(other);
+              }
+            ' "$RAWLOG"
+          else
+            echo "DEVICE_SIGNATURE_STATUS=RAW_SOURCE_NOT_READABLE"
+          fi
+          echo "DEVICE_SIGNATURES_END"
+
           echo "TOP_REFERRERS_BEGIN"
           awk '
             $1 == "BEGIN_REFERER" { inside=1; next }
@@ -154,6 +201,6 @@ jobs:
           ' "$DATA"
           echo "ERRORS_END"
 
-          echo "PRIVACY=No HOSTS section, raw IP address, raw request log, or full visitor record was printed or copied to GitHub."
+          echo "PRIVACY=Raw IP addresses, HOSTS entries, user-agent strings, and raw request lines are processed only in-memory on XServer and are never printed or copied to GitHub."
           echo "ACCESS_REPORT_END"
           REMOTE_SCRIPT
