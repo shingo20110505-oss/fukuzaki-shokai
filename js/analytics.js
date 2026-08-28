@@ -114,12 +114,17 @@
       utmCampaign
     };
 
+    const beaconFallback = body => {
+      try {
+        if (!navigator.sendBeacon) return;
+        navigator.sendBeacon(endpoint, new Blob([body], { type: 'application/json' }));
+      } catch (_) {}
+    };
+
     const send = (event, extra = {}) => {
       try {
         const body = JSON.stringify({ ...base, event, ...extra });
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon(endpoint, new Blob([body], { type: 'application/json' }));
-        } else {
+        if (typeof fetch === 'function') {
           fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -127,8 +132,10 @@
             credentials: 'same-origin',
             keepalive: true,
             cache: 'no-store'
-          }).catch(() => {});
+          }).catch(() => beaconFallback(body));
+          return;
         }
+        beaconFallback(body);
       } catch (_) {}
     };
 
