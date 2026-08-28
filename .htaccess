@@ -9,7 +9,7 @@ SetEnvIf Request_URI ".*" Ngx_Cache_AllCacheMode
   <FilesMatch "\.(html?|xml|txt)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
-  <FilesMatch "^(main\.js|style\.css)$">
+  <FilesMatch "^(main\.js|analytics\.js|style\.css)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
 </IfModule>
