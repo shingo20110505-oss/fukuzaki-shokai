@@ -37,7 +37,7 @@ jobs:
           from collections import Counter
 
           start = "2026-08-28T17:58:58+09:00"
-          end = "2026-08-28T17:59:27+09:00"
+          end = "2026-08-28T18:04:06+09:00"
           root = Path("/home/ayuto/ayuto.xsrv.jp/analytics-data")
           files = sorted(root.glob("events-*.tsv"))
           removed = Counter()
