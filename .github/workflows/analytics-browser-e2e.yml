@@ -27,13 +27,15 @@ jobs:
           chmod 600 ~/.ssh/id_xserver
           ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
 
-      - name: Open production in normal Chrome and inspect analytics network
+      - name: Open production directly in normal Chrome and inspect page state
         run: |
           set -eu
           command -v google-chrome >/dev/null
           command -v xvfb-run >/dev/null
           python3 -m pip install --quiet websocket-client
 
+          export E2E_MARKER="browser-cdp-${GITHUB_RUN_ID}"
+          target_url="https://ayuto.xsrv.jp/?utm_source=${E2E_MARKER}&utm_medium=internal&utm_campaign=browser-cdp"
           rm -rf /tmp/fukuzaki-e2e-profile
           xvfb-run -a google-chrome \
             --no-sandbox \
@@ -44,7 +46,7 @@ jobs:
             --remote-debugging-port=9222 \
             --remote-allow-origins='*' \
             --user-data-dir=/tmp/fukuzaki-e2e-profile \
-            about:blank >/tmp/fukuzaki-e2e-chrome.log 2>&1 &
+            "$target_url" >/tmp/fukuzaki-e2e-chrome.log 2>&1 &
 
           ready=0
           for i in $(seq 1 30); do
@@ -55,92 +57,68 @@ jobs:
             sleep 1
           done
           test "$ready" -eq 1 || (tail -n 100 /tmp/fukuzaki-e2e-chrome.log; exit 1)
+          sleep 8
 
-          export E2E_MARKER="browser-cdp-${GITHUB_RUN_ID}"
           python3 - <<'PY'
           import json
           import os
-          import sys
           import time
           from urllib.request import urlopen
           import websocket
 
           marker = os.environ['E2E_MARKER']
-          target_url = f'https://ayuto.xsrv.jp/?utm_source={marker}&utm_medium=internal&utm_campaign=browser-cdp'
           targets = json.load(urlopen('http://127.0.0.1:9222/json/list'))
-          page = next((t for t in targets if t.get('type') == 'page'), None)
+          safe_targets = [{'type': t.get('type'), 'url': (t.get('url') or '').split('?')[0]} for t in targets]
+          print('BROWSER_TARGETS=' + json.dumps(safe_targets, ensure_ascii=False))
+          page = next((t for t in targets if t.get('type') == 'page' and 'ayuto.xsrv.jp' in (t.get('url') or '')), None)
           if not page:
-              raise SystemExit('CDP_PAGE=MISSING')
+              raise SystemExit('LIVE_PAGE_TARGET=MISSING')
 
-          ws = websocket.create_connection(
-              page['webSocketDebuggerUrl'], timeout=1, origin='http://127.0.0.1:9222'
-          )
-          next_id = 0
-          def send(method, params=None):
-              global next_id
-              next_id += 1
-              ws.send(json.dumps({'id': next_id, 'method': method, 'params': params or {}}))
-              return next_id
+          ws = websocket.create_connection(page['webSocketDebuggerUrl'], timeout=2, origin='http://127.0.0.1:9222')
+          msg_id = 1
+          expression = "JSON.stringify({href:location.origin+location.pathname,title:document.title,ready:document.readyState,webdriver:navigator.webdriver===true,gpc:navigator.globalPrivacyControl===true,dnt:navigator.doNotTrack||null,uaHeadless:/headless/i.test(navigator.userAgent||''),script:!!document.querySelector('script[src*=\\\"analytics.js\\\"]'),seen:localStorage.getItem('fz_seen_v1'),day:localStorage.getItem('fz_day_v1'),last:!!localStorage.getItem('fz_last_v1'),resources:performance.getEntriesByType('resource').filter(e=>e.name.includes('analytics')).map(e=>({path:new URL(e.name).pathname,type:e.initiatorType,status:Number(e.responseStatus||0)}))})"
+          ws.send(json.dumps({'id': msg_id, 'method': 'Runtime.evaluate', 'params': {'expression': expression, 'returnByValue': True}}))
 
-          send('Network.enable')
-          send('Page.enable')
-          send('Runtime.enable')
-          send('Page.navigate', {'url': target_url})
-
-          analytics_requests = []
-          analytics_responses = []
-          exceptions = 0
-          deadline = time.time() + 12
-          while time.time() < deadline:
-              try:
-                  msg = json.loads(ws.recv())
-              except websocket.WebSocketTimeoutException:
-                  continue
-              method = msg.get('method')
-              params = msg.get('params', {})
-              if method == 'Network.requestWillBeSent':
-                  req = params.get('request', {})
-                  url = req.get('url', '')
-                  if '/analytics.php' in url:
-                      analytics_requests.append({'method': req.get('method'), 'path': '/analytics.php'})
-              elif method == 'Network.responseReceived':
-                  resp = params.get('response', {})
-                  url = resp.get('url', '')
-                  if '/analytics.php' in url:
-                      analytics_responses.append(int(resp.get('status', 0)))
-              elif method == 'Runtime.exceptionThrown':
-                  exceptions += 1
-
-          eval_id = send('Runtime.evaluate', {
-              'expression': "JSON.stringify({webdriver:navigator.webdriver===true,gpc:navigator.globalPrivacyControl===true,dnt:navigator.doNotTrack||null,uaHeadless:/headless/i.test(navigator.userAgent||''),script:!!document.querySelector('script[src*=\\\"analytics.js\\\"]'),seen:localStorage.getItem('fz_seen_v1'),day:localStorage.getItem('fz_day_v1'),resources:performance.getEntriesByType('resource').filter(e=>e.name.includes('analytics')).map(e=>({path:new URL(e.name).pathname,type:e.initiatorType,status:Number(e.responseStatus||0)}))})",
-              'returnByValue': True
-          })
           diag = None
-          deadline = time.time() + 4
+          deadline = time.time() + 5
           while time.time() < deadline:
               try:
                   msg = json.loads(ws.recv())
               except websocket.WebSocketTimeoutException:
                   continue
-              if msg.get('id') == eval_id:
-                  value = msg.get('result', {}).get('result', {}).get('value')
-                  if value:
-                      diag = json.loads(value)
+              if msg.get('id') == msg_id:
+                  if 'error' in msg:
+                      print('BROWSER_EVAL_ERROR=' + json.dumps(msg['error'], ensure_ascii=False))
+                      break
+                  result = msg.get('result', {})
+                  inner = result.get('result', {})
+                  if inner.get('value'):
+                      diag = json.loads(inner['value'])
+                  elif inner.get('description'):
+                      print('BROWSER_EVAL_DESCRIPTION=' + str(inner.get('description')))
                   break
 
-          send('Browser.close')
+          try:
+              ws.send(json.dumps({'id': 2, 'method': 'Browser.close', 'params': {}}))
+          except Exception:
+              pass
           ws.close()
 
-          print('BROWSER_CDP_NAV=OK')
-          print('BROWSER_CDP_DIAG=' + json.dumps(diag, ensure_ascii=False, sort_keys=True))
-          print('BROWSER_CDP_ANALYTICS_REQUESTS=' + str(len(analytics_requests)))
-          print('BROWSER_CDP_ANALYTICS_RESPONSES=' + ','.join(map(str, analytics_responses)))
-          print('BROWSER_CDP_JS_EXCEPTIONS=' + str(exceptions))
-
-          if not analytics_requests:
-              raise SystemExit('BROWSER_CDP_ANALYTICS_REQUEST=MISSING')
-          if 204 not in analytics_responses:
-              raise SystemExit('BROWSER_CDP_ANALYTICS_204=MISSING')
+          print('BROWSER_PAGE_DIAG=' + json.dumps(diag, ensure_ascii=False, sort_keys=True))
+          if not diag:
+              raise SystemExit('BROWSER_PAGE_DIAG=MISSING')
+          if diag.get('href') != 'https://ayuto.xsrv.jp/':
+              raise SystemExit('BROWSER_PAGE_NOT_PRODUCTION')
+          if not diag.get('script'):
+              raise SystemExit('ANALYTICS_SCRIPT_TAG=MISSING')
+          if diag.get('webdriver') or diag.get('gpc') or diag.get('dnt') == '1' or diag.get('uaHeadless'):
+              raise SystemExit('ANALYTICS_BROWSER_FILTER_ACTIVE')
+          if diag.get('seen') != '1':
+              raise SystemExit('ANALYTICS_JS_DID_NOT_PASS_FILTERS')
+          resources = diag.get('resources') or []
+          if not any(r.get('path') == '/analytics.php' for r in resources):
+              raise SystemExit('ANALYTICS_FETCH_RESOURCE=MISSING')
+          print('BROWSER_PAGE_ANALYTICS_EXECUTION=OK')
           PY
 
       - name: Verify XServer received browser rows and remove only test rows
