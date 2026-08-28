@@ -1,0 +1,191 @@
+name: Analytics browser E2E diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - safe-js-analytics-20260827
+    paths:
+      - '.github/workflows/analytics-browser-e2e.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Open production in normal Chrome and inspect analytics network
+        run: |
+          set -eu
+          command -v google-chrome >/dev/null
+          command -v xvfb-run >/dev/null
+          python3 -m pip install --quiet websocket-client
+
+          rm -rf /tmp/fukuzaki-e2e-profile
+          xvfb-run -a google-chrome \
+            --no-sandbox \
+            --disable-dev-shm-usage \
+            --disable-default-apps \
+            --disable-extensions \
+            --no-first-run \
+            --remote-debugging-port=9222 \
+            --remote-allow-origins='*' \
+            --user-data-dir=/tmp/fukuzaki-e2e-profile \
+            about:blank >/tmp/fukuzaki-e2e-chrome.log 2>&1 &
+
+          ready=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9222/json/list >/tmp/fukuzaki-e2e-targets.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || (tail -n 100 /tmp/fukuzaki-e2e-chrome.log; exit 1)
+
+          export E2E_MARKER="browser-cdp-${GITHUB_RUN_ID}"
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          from urllib.request import urlopen
+          import websocket
+
+          marker = os.environ['E2E_MARKER']
+          target_url = f'https://ayuto.xsrv.jp/?utm_source={marker}&utm_medium=internal&utm_campaign=browser-cdp'
+          targets = json.load(urlopen('http://127.0.0.1:9222/json/list'))
+          page = next((t for t in targets if t.get('type') == 'page'), None)
+          if not page:
+              raise SystemExit('CDP_PAGE=MISSING')
+
+          ws = websocket.create_connection(
+              page['webSocketDebuggerUrl'], timeout=1, origin='http://127.0.0.1:9222'
+          )
+          next_id = 0
+          def send(method, params=None):
+              global next_id
+              next_id += 1
+              ws.send(json.dumps({'id': next_id, 'method': method, 'params': params or {}}))
+              return next_id
+
+          send('Network.enable')
+          send('Page.enable')
+          send('Runtime.enable')
+          send('Page.navigate', {'url': target_url})
+
+          analytics_requests = []
+          analytics_responses = []
+          exceptions = 0
+          deadline = time.time() + 12
+          while time.time() < deadline:
+              try:
+                  msg = json.loads(ws.recv())
+              except websocket.WebSocketTimeoutException:
+                  continue
+              method = msg.get('method')
+              params = msg.get('params', {})
+              if method == 'Network.requestWillBeSent':
+                  req = params.get('request', {})
+                  url = req.get('url', '')
+                  if '/analytics.php' in url:
+                      analytics_requests.append({'method': req.get('method'), 'path': '/analytics.php'})
+              elif method == 'Network.responseReceived':
+                  resp = params.get('response', {})
+                  url = resp.get('url', '')
+                  if '/analytics.php' in url:
+                      analytics_responses.append(int(resp.get('status', 0)))
+              elif method == 'Runtime.exceptionThrown':
+                  exceptions += 1
+
+          eval_id = send('Runtime.evaluate', {
+              'expression': "JSON.stringify({webdriver:navigator.webdriver===true,gpc:navigator.globalPrivacyControl===true,dnt:navigator.doNotTrack||null,uaHeadless:/headless/i.test(navigator.userAgent||''),script:!!document.querySelector('script[src*=\\\"analytics.js\\\"]'),seen:localStorage.getItem('fz_seen_v1'),day:localStorage.getItem('fz_day_v1'),resources:performance.getEntriesByType('resource').filter(e=>e.name.includes('analytics')).map(e=>({path:new URL(e.name).pathname,type:e.initiatorType,status:Number(e.responseStatus||0)}))})",
+              'returnByValue': True
+          })
+          diag = None
+          deadline = time.time() + 4
+          while time.time() < deadline:
+              try:
+                  msg = json.loads(ws.recv())
+              except websocket.WebSocketTimeoutException:
+                  continue
+              if msg.get('id') == eval_id:
+                  value = msg.get('result', {}).get('result', {}).get('value')
+                  if value:
+                      diag = json.loads(value)
+                  break
+
+          send('Browser.close')
+          ws.close()
+
+          print('BROWSER_CDP_NAV=OK')
+          print('BROWSER_CDP_DIAG=' + json.dumps(diag, ensure_ascii=False, sort_keys=True))
+          print('BROWSER_CDP_ANALYTICS_REQUESTS=' + str(len(analytics_requests)))
+          print('BROWSER_CDP_ANALYTICS_RESPONSES=' + ','.join(map(str, analytics_responses)))
+          print('BROWSER_CDP_JS_EXCEPTIONS=' + str(exceptions))
+
+          if not analytics_requests:
+              raise SystemExit('BROWSER_CDP_ANALYTICS_REQUEST=MISSING')
+          if 204 not in analytics_responses:
+              raise SystemExit('BROWSER_CDP_ANALYTICS_204=MISSING')
+          PY
+
+      - name: Verify XServer received browser rows and remove only test rows
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          MARKER="browser-cdp-${GITHUB_RUN_ID}"
+          $SSH "$REMOTE" "python3 - '$MARKER'" <<'PY'
+          from pathlib import Path
+          import sys
+
+          marker = sys.argv[1]
+          files = sorted(Path('/home/ayuto/ayuto.xsrv.jp/analytics-data').glob('events-*.tsv'))
+          matches = []
+          changes = []
+
+          for path in files:
+              lines = path.read_text(encoding='utf-8').splitlines()
+              keep = []
+              changed = False
+              for line in lines:
+                  fields = line.split('\t')
+                  if len(fields) == 29 and fields[19] == marker:
+                      matches.append(fields)
+                      changed = True
+                  else:
+                      keep.append(line)
+              if changed:
+                  changes.append((path, keep))
+
+          if not matches:
+              raise SystemExit('XSERVER_BROWSER_RECORD=MISSING')
+          if not any(f[1] == 'pageview' for f in matches):
+              raise SystemExit('XSERVER_BROWSER_PAGEVIEW=MISSING')
+
+          for path, keep in changes:
+              text = '\n'.join(keep)
+              if text:
+                  text += '\n'
+              path.write_text(text, encoding='utf-8')
+
+          events = sorted({f[1] for f in matches})
+          first = matches[0]
+          print(f"XSERVER_BROWSER_RECORD=OK rows={len(matches)} events={','.join(events)}")
+          print(f"XSERVER_BROWSER_CLASS=device:{first[4]} os:{first[5]} browser:{first[6]} timezone:{first[14]}")
+          print('XSERVER_BROWSER_TEST_ROWS_REMOVED=OK')
+          PY
