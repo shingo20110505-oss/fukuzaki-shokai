@@ -32,7 +32,7 @@ jobs:
           set -eu
           SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
           REMOTE="ayuto@sv16618.xserver.jp"
-          $SSH "$REMOTE" 'python3 - <<'"'"'PY'"'"'
+          $SSH "$REMOTE" "python3 -" <<'PY'
           from pathlib import Path
           from collections import Counter
 
@@ -67,7 +67,6 @@ jobs:
           for event in sorted(removed):
               print(f"REMOVED_EVENT|{event}|{removed[event]}")
 
-          # Verify no row remains in the confirmed time window.
           remaining = 0
           for path in files:
               for line in path.read_text(encoding="utf-8").splitlines():
