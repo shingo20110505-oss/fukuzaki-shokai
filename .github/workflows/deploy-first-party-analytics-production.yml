@@ -1,11 +1,16 @@
 name: Deploy first-party analytics safely
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - safe-js-analytics-20260827
     paths:
       - '.github/workflows/deploy-first-party-analytics-production.yml'
+      - '.htaccess'
+      - 'analytics.php'
+      - 'js/analytics.js'
+      - '*.html'
 
 permissions:
   contents: read
@@ -30,6 +35,7 @@ jobs:
           count=$(grep -l 'js/analytics.js?v=20260827a' ./*.html | wc -l | tr -d ' ')
           test "$count" -ge 12 || (echo "ERROR: loader only in $count HTML pages" && exit 1)
           grep -q 'XServer内の自前アクセス解析' privacy.html
+          grep -Fq 'main\.js|analytics\.js|style\.css' .htaccess
           echo "SOURCE_VERIFY=OK pages=$count"
 
       - name: Configure SSH
@@ -67,16 +73,17 @@ jobs:
           rsync -az -e "$SSH" ./*.html "$REMOTE:$STAGE/"
           rsync -az -e "$SSH" js/analytics.js "$REMOTE:$STAGE/js/analytics.js"
           rsync -az -e "$SSH" analytics.php "$REMOTE:$STAGE/analytics.php"
+          rsync -az -e "$SSH" .htaccess "$REMOTE:$STAGE/.htaccess"
 
-          $SSH "$REMOTE" "test -s '$STAGE/index.html' && test -s '$STAGE/js/analytics.js' && test -s '$STAGE/analytics.php' && grep -q 'js/analytics.js?v=20260827a' '$STAGE/index.html' && grep -q 'XServer内の自前アクセス解析' '$STAGE/privacy.html'"
+          $SSH "$REMOTE" "test -s '$STAGE/index.html' && test -s '$STAGE/js/analytics.js' && test -s '$STAGE/analytics.php' && test -s '$STAGE/.htaccess' && grep -q 'js/analytics.js?v=20260827a' '$STAGE/index.html' && grep -q 'XServer内の自前アクセス解析' '$STAGE/privacy.html' && grep -Fq 'main\.js|analytics\.js|style\.css' '$STAGE/.htaccess'"
 
           before_main=$($SSH "$REMOTE" "sha256sum '$TARGET/js/main.js' | awk '{print \$1}'")
 
-          $SSH "$REMOTE" "cp '$STAGE/'*.html '$TARGET/' && cp '$STAGE/js/analytics.js' '$TARGET/js/analytics.js' && cp '$STAGE/analytics.php' '$TARGET/analytics.php'"
+          $SSH "$REMOTE" "cp '$STAGE/'*.html '$TARGET/' && cp '$STAGE/js/analytics.js' '$TARGET/js/analytics.js' && cp '$STAGE/analytics.php' '$TARGET/analytics.php' && cp '$STAGE/.htaccess' '$TARGET/.htaccess'"
 
           after_main=$($SSH "$REMOTE" "sha256sum '$TARGET/js/main.js' | awk '{print \$1}'")
           test "$before_main" = "$after_main" || (echo 'ERROR: production main.js changed' && exit 1)
-          $SSH "$REMOTE" "test -s '$TARGET/index.html' && test -s '$TARGET/js/analytics.js' && test -s '$TARGET/analytics.php' && grep -q 'js/analytics.js?v=20260827a' '$TARGET/index.html' && grep -q 'XServer内の自前アクセス解析' '$TARGET/privacy.html' && printf 'PRODUCTION_FILES=OK\nBACKUP=%s\n' '$BACKUP'"
+          $SSH "$REMOTE" "test -s '$TARGET/index.html' && test -s '$TARGET/js/analytics.js' && test -s '$TARGET/analytics.php' && test -s '$TARGET/.htaccess' && grep -q 'js/analytics.js?v=20260827a' '$TARGET/index.html' && grep -q 'XServer内の自前アクセス解析' '$TARGET/privacy.html' && grep -Fq 'main\.js|analytics\.js|style\.css' '$TARGET/.htaccess' && printf 'PRODUCTION_FILES=OK\nBACKUP=%s\n' '$BACKUP'"
           $SSH "$REMOTE" "rm -rf '$STAGE'"
 
       - name: Verify live website and analytics write
@@ -84,7 +91,8 @@ jobs:
           set -eu
           base='https://ayuto.xsrv.jp'
           curl -fsS --retry 4 --retry-delay 2 "$base/" | grep -q 'js/analytics.js?v=20260827a'
-          curl -fsS --retry 4 --retry-delay 2 "$base/js/analytics.js?v=20260827a" | grep -q "send('pageview')"
+          curl -fsS --retry 4 --retry-delay 2 "$base/js/analytics.js?v=20260827a" | grep -q 'beaconFallback'
+          curl -fsSI --retry 4 --retry-delay 2 "$base/js/analytics.js?v=20260827a" | grep -qi 'cache-control:.*no-cache'
           curl -fsS --retry 4 --retry-delay 2 "$base/privacy.html" | grep -q 'XServer内の自前アクセス解析'
           curl -fsSI --retry 4 --retry-delay 2 "$base/style.css?v=20260824e" | grep -Eq '^HTTP/.* 200'
           curl -fsSI --retry 4 --retry-delay 2 "$base/js/main.js?v=20260824e" | grep -Eq '^HTTP/.* 200'
