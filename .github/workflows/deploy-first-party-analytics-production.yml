@@ -122,3 +122,74 @@ jobs:
           print("PRODUCTION_ANALYTICS_RECORD=OK fields=29")
           print("PRIVACY_BOUNDARY=No raw IP, full User-Agent, name, phone, email, or persistent unique client ID stored by custom analytics")
           PY'
+
+      - name: Run normal Chrome browser analytics E2E
+        run: |
+          set -eu
+          marker="browser-e2e-${GITHUB_RUN_ID}"
+          url="https://ayuto.xsrv.jp/?utm_source=${marker}&utm_medium=internal&utm_campaign=browser-e2e"
+          command -v google-chrome >/dev/null
+          command -v xvfb-run >/dev/null
+          rm -rf /tmp/fukuzaki-browser-profile
+          set +e
+          timeout 12s xvfb-run -a google-chrome \
+            --no-sandbox \
+            --disable-dev-shm-usage \
+            --disable-default-apps \
+            --disable-extensions \
+            --no-first-run \
+            --user-data-dir=/tmp/fukuzaki-browser-profile \
+            "$url" >/tmp/fukuzaki-browser.log 2>&1
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
+            tail -n 80 /tmp/fukuzaki-browser.log || true
+            exit "$code"
+          fi
+          echo "BROWSER_E2E_NAV=OK marker=$marker"
+
+      - name: Verify browser event reached XServer and remove test rows
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          MARKER="browser-e2e-${GITHUB_RUN_ID}"
+          $SSH "$REMOTE" "python3 - '$MARKER'" <<'PY'
+          from pathlib import Path
+          import sys
+
+          marker = sys.argv[1]
+          files = sorted(Path('/home/ayuto/ayuto.xsrv.jp/analytics-data').glob('events-*.tsv'))
+          matches = []
+          rewritten = []
+
+          for path in files:
+              original = path.read_text(encoding='utf-8').splitlines()
+              keep = []
+              changed = False
+              for line in original:
+                  fields = line.split('\t')
+                  if len(fields) == 29 and fields[19] == marker:
+                      matches.append(fields)
+                      changed = True
+                  else:
+                      keep.append(line)
+              if changed:
+                  rewritten.append((path, keep))
+
+          if not matches:
+              raise SystemExit('BROWSER_E2E_RECORD=MISSING')
+          if not any(fields[1] == 'pageview' for fields in matches):
+              raise SystemExit('BROWSER_E2E_PAGEVIEW=MISSING')
+
+          for path, keep in rewritten:
+              text = '\n'.join(keep)
+              if text:
+                  text += '\n'
+              path.write_text(text, encoding='utf-8')
+
+          events = sorted({fields[1] for fields in matches})
+          print(f"BROWSER_E2E_RECORD=OK rows={len(matches)} events={','.join(events)}")
+          print(f"BROWSER_E2E_CLASS=device:{matches[0][4]} os:{matches[0][5]} browser:{matches[0][6]} timezone:{matches[0][14]}")
+          print('BROWSER_E2E_CLEANUP=OK')
+          PY
