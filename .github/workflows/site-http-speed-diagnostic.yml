@@ -56,7 +56,7 @@ jobs:
           echo 'SPEED_DIAGNOSTIC_BEGIN'
           echo "REPORT_TIME_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           measure homepage '/'
-          measure css '/css/style.css'
+          measure css '/style.css'
           measure main_js '/js/main.js'
           measure analytics_js '/js/analytics.js'
           echo 'SPEED_DIAGNOSTIC_END'
