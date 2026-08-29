@@ -64,7 +64,7 @@ jobs:
 
           TMP=$(mktemp -d /tmp/fukuzaki-detailed.XXXXXX)
           trap 'rm -rf "$TMP"' EXIT HUP INT TERM
-          cat $FILES | awk -F '\t' 'NF==29 && $20 != "workflow-production-test" {print}' > "$TMP/events"
+          cat $FILES | awk -F '\t' 'NF==29 && $20 != "workflow-production-test" && $20 !~ /^browser-cdp-/ && $20 != "workflow-browser-e2e" && $20 != "speed-diagnostic" {print}' > "$TMP/events"
 
           if [ ! -s "$TMP/events" ]; then
             echo "CUSTOM_STATUS=NO_REAL_EVENTS"
