@@ -122,6 +122,7 @@ jobs:
           PY
 
       - name: Verify XServer received browser rows and remove only test rows
+        if: always()
         run: |
           set -eu
           SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
