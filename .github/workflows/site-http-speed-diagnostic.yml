@@ -1,0 +1,62 @@
+name: Site HTTP speed diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - safe-js-analytics-20260827
+    paths:
+      - '.github/workflows/site-http-speed-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  speed-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Measure production HTTP timings without executing JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://ayuto.xsrv.jp'
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+
+          measure() {
+            local label="$1"
+            local path="$2"
+            local out="$TMP/${label}.txt"
+            : > "$out"
+            for i in $(seq 1 10); do
+              curl --fail --silent --show-error --location \
+                --connect-timeout 10 --max-time 20 \
+                --output /dev/null \
+                --write-out '%{http_code}\t%{time_namelookup}\t%{time_connect}\t%{time_appconnect}\t%{time_starttransfer}\t%{time_total}\n' \
+                "${BASE}${path}" >> "$out"
+              sleep 0.4
+            done
+
+            awk -F '\t' -v label="$label" '
+              BEGIN { min_ttfb=999; max_ttfb=0; min_total=999; max_total=0 }
+              {
+                if ($1 < 200 || $1 >= 400) bad++;
+                dns += $2; conn += $3; tls += $4; ttfb += $5; total += $6; n++;
+                if ($5 < min_ttfb) min_ttfb=$5;
+                if ($5 > max_ttfb) max_ttfb=$5;
+                if ($6 < min_total) min_total=$6;
+                if ($6 > max_total) max_total=$6;
+              }
+              END {
+                printf "SPEED|%s|samples=%d|bad=%d|dns_avg_ms=%.0f|connect_avg_ms=%.0f|tls_avg_ms=%.0f|ttfb_avg_ms=%.0f|ttfb_min_ms=%.0f|ttfb_max_ms=%.0f|total_avg_ms=%.0f|total_min_ms=%.0f|total_max_ms=%.0f\n", label,n,bad+0,(dns/n)*1000,(conn/n)*1000,(tls/n)*1000,(ttfb/n)*1000,min_ttfb*1000,max_ttfb*1000,(total/n)*1000,min_total*1000,max_total*1000;
+              }
+            ' "$out"
+          }
+
+          echo 'SPEED_DIAGNOSTIC_BEGIN'
+          echo "REPORT_TIME_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          measure homepage '/'
+          measure css '/css/style.css'
+          measure main_js '/js/main.js'
+          measure analytics_js '/js/analytics.js'
+          echo 'SPEED_DIAGNOSTIC_END'
