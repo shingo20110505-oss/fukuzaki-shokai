@@ -1,0 +1,68 @@
+name: Analytics slow hour audit once
+
+on:
+  push:
+    branches:
+      - safe-js-analytics-20260827
+    paths:
+      - '.github/workflows/analytics-slow-hour-audit-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_xserver
+          chmod 600 ~/.ssh/id_xserver
+          ssh-keygen -y -f ~/.ssh/id_xserver >/dev/null
+
+      - name: Aggregate performance events by JST hour only
+        shell: bash
+        run: |
+          set -eu
+          SSH="ssh -i $HOME/.ssh/id_xserver -p 10022 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
+          REMOTE="ayuto@sv16618.xserver.jp"
+          $SSH "$REMOTE" 'python3 -' <<'PY'
+          from pathlib import Path
+          from collections import Counter
+
+          root = Path('/home/ayuto/ayuto.xsrv.jp/analytics-data')
+          perf = Counter()
+          pageviews = Counter()
+          for path in sorted(root.glob('events-*.tsv')):
+              for line in path.read_text(encoding='utf-8').splitlines():
+                  f = line.split('\t')
+                  if len(f) != 29:
+                      continue
+                  event = f[1]
+                  source = f[19]
+                  if source == 'workflow-production-test' or source.startswith('browser-cdp-') or source in {'workflow-browser-e2e','speed-diagnostic'}:
+                      continue
+                  hour = f[0][:13]
+                  if event == 'performance':
+                      perf[(hour, f[2], f[4], f[5], f[6], f[23], f[24], f[25], f[3], source or '(none)')] += 1
+                  elif event == 'pageview':
+                      pageviews[(hour, f[2], f[4], f[5], f[6], f[3], source or '(none)')] += 1
+
+          print('SLOW_HOUR_AUDIT_BEGIN')
+          for key, count in sorted(perf.items()):
+              hour, page, device, os_name, browser, ttfb, dom, load, ref, source = key
+              print(f'PERF_HOUR|{hour}|page={page}|device={device}|os={os_name}|browser={browser}|ttfb={ttfb}|dom={dom}|load={load}|ref={ref}|utm_source={source}|count={count}')
+          for key, count in sorted(pageviews.items()):
+              hour, page, device, os_name, browser, ref, source = key
+              print(f'PAGEVIEW_HOUR|{hour}|page={page}|device={device}|os={os_name}|browser={browser}|ref={ref}|utm_source={source}|count={count}')
+          print(f'PERFORMANCE_GROUPS={len(perf)}')
+          print(f'PAGEVIEW_GROUPS={len(pageviews)}')
+          print('PRIVACY=Hour-level aggregate only; no IP, full User-Agent, exact timestamp, persistent ID, or individual event row is printed.')
+          print('SLOW_HOUR_AUDIT_END')
+          PY
